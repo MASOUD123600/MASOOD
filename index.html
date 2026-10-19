@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Maleki Brain MRI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one-screen reading-room viewer. Top study bar, series rail (left on desktop, bottom strip on phone), viewport grid fills the rest. Deliberately dark-only, like a radiology monitor. */
+:root {
+  --bg: #0b0d10;
+  --panel: #13161b;
+  --panel-2: #1a1e25;
+  --line: #262b34;
+  --fg: #d9dee6;
+  --muted: #8a93a3;
+  --accent: #e6b450;
+  --accent-ink: #1a1405;
+  --overlay: #f1d27a;
+  --live: #4cc38a;
+  --font-ui: "Barlow", "Segoe UI", system-ui, sans-serif;
+  --font-data: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; margin: 0; }
+*, *::before, *::after { box-sizing: border-box; }
+:root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); height: 100%; }
+[hidden] { display: none !important; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font-ui); font-size: 14px;
+  overflow: hidden; -webkit-user-select: none; user-select: none;
+}
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--panel); }
+.app { height: 100%; display: grid; grid-template-rows: auto auto 1fr; grid-template-columns: 220px 1fr; grid-template-areas: "top top" "tools tools" "rail main"; }
+.top {
+  grid-area: top; background: var(--panel); border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  padding-block: 10px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.pt { display: flex; flex-direction: column; min-width: 0; }
+.pt b { font-size: 17px; font-weight: 600; letter-spacing: .02em; }
+.pt span { color: var(--muted); font-size: 12.5px; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+.chip { font-family: var(--font-data); font-size: 11.5px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 3px 7px; white-space: nowrap; }
+.chip.mod { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); font-weight: 500; }
+.tools {
+  grid-area: tools; background: var(--panel-2); border-bottom: 1px solid var(--line);
+  display: flex; gap: 4px; align-items: center; overflow-x: auto; scrollbar-width: none;
+  padding-block: 6px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.tools::-webkit-scrollbar { display: none; }
+.sep { width: 1px; align-self: stretch; background: var(--line); margin: 2px 6px; flex: none; }
+.tb {
+  flex: none; display: inline-flex; flex-direction: column; align-items: center; gap: 2px;
+  min-width: 58px; padding: 5px 8px; border: 1px solid transparent; border-radius: 6px;
+  background: none; color: var(--fg); font: 500 11px var(--font-ui); letter-spacing: .03em; cursor: pointer;
+}
+.tb svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.tb:hover { background: var(--panel); }
+.tb[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.tb:focus-visible, .ser:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.rail { grid-area: rail; background: var(--panel); border-right: 1px solid var(--line); overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.rail h2 { font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 4px 4px 2px; }
+.ser {
+  display: grid; grid-template-columns: 56px 1fr; gap: 8px; align-items: center; text-align: left;
+  padding: 5px; border-radius: 6px; border: 1px solid transparent; background: none; color: var(--fg); cursor: pointer; font: inherit;
+}
+.ser:hover { background: var(--panel-2); }
+.ser.on { border-color: var(--accent); background: var(--panel-2); }
+.ser canvas { width: 56px; height: 56px; border-radius: 4px; background: #000; display: block; }
+.ser .t { min-width: 0; }
+.ser .d { font-size: 12.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.ser .m { font-family: var(--font-data); font-size: 10.5px; color: var(--muted); }
+.ser .k { font-size: 10.5px; color: var(--accent); }
+.main { grid-area: main; display: grid; gap: 2px; background: var(--line); min-height: 0; min-width: 0; }
+.main.l1 { grid-template-columns: 1fr; }
+.main.l2 { grid-template-columns: 1fr 1fr; }
+.vp { position: relative; background: #000; min-width: 0; min-height: 0; overflow: hidden; touch-action: none; outline: none; }
+.vp.act { box-shadow: inset 0 0 0 2px var(--accent); }
+.main.l1 .vp.act { box-shadow: none; }
+.vp canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.ov { position: absolute; font-family: var(--font-data); font-size: 11.5px; line-height: 1.45; color: var(--overlay); text-shadow: 0 0 3px #000, 0 0 2px #000; pointer-events: none; white-space: pre; }
+.ov.tl { top: 8px; left: 10px; } .ov.tr { top: 8px; right: 10px; text-align: right; }
+.ov.bl { bottom: 40px; left: 10px; } .ov.br { bottom: 40px; right: 10px; text-align: right; }
+.om { position: absolute; font: 600 13px var(--font-data); color: var(--overlay); text-shadow: 0 0 3px #000; pointer-events: none; }
+.om.l { left: 8px; top: 50%; transform: translateY(-50%); } .om.r { right: 8px; top: 50%; transform: translateY(-50%); }
+.om.t { top: 6px; left: 50%; transform: translateX(-50%); } .om.b { bottom: 38px; left: 50%; transform: translateX(-50%); }
+.bar { position: absolute; left: 0; right: 0; bottom: 0; height: 32px; display: flex; align-items: center; gap: 10px; padding: 0 10px; background: linear-gradient(transparent, rgba(0,0,0,.75)); }
+.bar input[type=range] { flex: 1; accent-color: var(--accent); min-width: 0; }
+.bar .n { font: 500 11.5px var(--font-data); color: var(--overlay); min-width: 52px; text-align: right; }
+.load { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 13px; pointer-events: none; }
+.help {
+  position: fixed; inset: 0; background: rgba(5,6,8,.78); display: grid; place-items: center; z-index: 20;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.help .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px 22px; max-width: 520px; width: 100%; max-height: 85vh; overflow-y: auto; direction: rtl; text-align: right; line-height: 1.8; font-family: Tahoma, var(--font-ui); -webkit-user-select: text; user-select: text; }
+.help h3 { margin: 0 0 8px; font-size: 16px; color: var(--accent); }
+.help ul { margin: 0 0 12px; padding-right: 18px; padding-left: 0; }
+.help .note { color: var(--muted); font-size: 12.5px; border-top: 1px solid var(--line); padding-top: 10px; }
+.help button { margin-top: 10px; background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 6px; padding: 8px 18px; font: 600 14px Tahoma, var(--font-ui); cursor: pointer; }
+.info dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 0; direction: ltr; text-align: left; font-size: 13px; }
+.info dt { color: var(--muted); } .info dd { margin: 0; font-family: var(--font-data); font-size: 12.5px; }
+
+@media (max-width: 760px) {
+  .app { grid-template-columns: 1fr; grid-template-rows: auto auto 1fr auto; grid-template-areas: "top" "tools" "main" "rail"; }
+  .top { gap: 8px; padding-block: 8px; }
+  .chips { margin-left: 0; }
+  .chip.opt { display: none; }
+  .rail {
+    flex-direction: row; overflow-x: auto; overflow-y: hidden; border-right: 0; border-top: 1px solid var(--line);
+    padding-block: 6px; padding-left: max(8px, env(safe-area-inset-left, 0px)); padding-right: max(8px, env(safe-area-inset-right, 0px));
+  }
+  .rail h2 { display: none; }
+  .ser { grid-template-columns: 1fr; width: 76px; flex: none; gap: 3px; padding: 3px; }
+  .ser canvas { width: 68px; height: 68px; margin: 0 auto; }
+  .ser .d { font-size: 10.5px; text-align: center; }
+  .ser .m, .ser .k { display: none; }
+  .main.l2 { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+  .ov { font-size: 10px; } .ov.bl, .ov.br { bottom: 36px; }
+  .tb { min-width: 50px; padding: 4px 5px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="pt"><b id="pname">—</b><span id="psub"></span></div>
+    <div class="chips" id="chips"></div>
+  </header>
+
+  <nav class="tools" aria-label="Viewer tools">
+    <button class="tb" id="t-scroll" data-tool="scroll" aria-pressed="true" title="Drag up/down to move through slices">
+      <svg viewBox="0 0 24 24"><rect x="6" y="3" width="12" height="5" rx="1"/><rect x="6" y="10" width="12" height="5" rx="1"/><path d="M12 17v4m-3-2 3 3 3-3"/></svg>Scroll</button>
+    <button class="tb" id="t-wl" data-tool="wl" aria-pressed="false" title="Drag to change brightness (up/down) and contrast (left/right)">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg>Contrast</button>
+    <button class="tb" id="t-zoom" data-tool="zoom" aria-pressed="false" title="Drag up/down to zoom">
+      <svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5 5M8 10.5h5M10.5 8v5"/></svg>Zoom</button>
+    <button class="tb" id="t-pan" data-tool="pan" aria-pressed="false" title="Drag to move the image">
+      <svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18m-15-3-3 3 3 3m12-6 3 3-3 3M9 6l3-3 3 3m-6 12 3 3 3-3"/></svg>Pan</button>
+    <span class="sep"></span>
+    <button class="tb" id="t-play" aria-pressed="false" title="Play slices as a movie (Space)">
+      <svg viewBox="0 0 24 24"><path d="M7 5v14l11-7z"/></svg>Cine</button>
+    <button class="tb" id="t-inv" aria-pressed="false" title="Invert grey levels (I)">
+      <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 20 20 4v16z" fill="currentColor"/></svg>Invert</button>
+    <button class="tb" id="t-fit" title="Reset zoom, position and contrast (R)">
+      <svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>Reset</button>
+    <span class="sep"></span>
+    <button class="tb" id="t-l1" aria-pressed="true" title="One image">
+      <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="1.5"/></svg>1 up</button>
+    <button class="tb" id="t-l2" aria-pressed="false" title="Two series side by side">
+      <svg viewBox="0 0 24 24"><rect x="3" y="5" width="8" height="14" rx="1.2"/><rect x="13" y="5" width="8" height="14" rx="1.2"/></svg>Compare</button>
+    <button class="tb" id="t-sync" aria-pressed="false" title="Link slice position between the two panes">
+      <svg viewBox="0 0 24 24"><path d="M9 15 15 9M8 12l-2 2a3 3 0 0 0 4 4l2-2m0-8 2-2a3 3 0 0 1 4 4l-2 2"/></svg>Link</button>
+    <span class="sep"></span>
+    <button class="tb" id="t-info" title="Study details">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-9.5v.5"/></svg>Info</button>
+    <button class="tb" id="t-help" title="راهنما">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7m0 3v.5"/></svg>راهنما</button>
+  </nav>
+
+  <aside class="rail" id="rail" aria-label="Series"><h2>Series</h2></aside>
+  <main class="main l1" id="main"></main>
+</div>
+
+<div class="help" id="help">
+  <div class="card">
+    <h3>راهنمای نمایشگر MRI</h3>
+    <ul>
+      <li>از نوار سری‌ها (کنار یا پایین صفحه) یک سری تصویر را انتخاب کنید.</li>
+      <li><b>Scroll:</b> با کشیدن انگشت بالا و پایین، یا چرخ موس، بین برش‌ها حرکت کنید. نوار پایین تصویر هم همین کار را می‌کند.</li>
+      <li><b>Contrast:</b> کشیدن بالا/پایین روشنایی و چپ/راست کنتراست را تغییر می‌دهد.</li>
+      <li><b>Zoom و Pan:</b> بزرگ‌نمایی و جابه‌جایی. روی گوشی با دو انگشت هم می‌شود زوم کرد.</li>
+      <li><b>Cine:</b> نمایش خودکار برش‌ها پشت سر هم.</li>
+      <li><b>Compare:</b> دو سری کنار هم. روی پنجره‌ای که می‌خواهید بزنید، بعد سری را انتخاب کنید. <b>Link</b> برش‌های دو پنجره را با هم حرکت می‌دهد.</li>
+      <li>صفحه‌کلید: ↑↓ برش‌ها، Space پخش، I معکوس، R بازنشانی.</li>
+    </ul>
+    <div class="note">این صفحه برای مشاهده است و جای گزارش رسمی رادیولوژیست را نمی‌گیرد. تصاویر برای وب فشرده شده‌اند؛ برای بررسی تخصصی از فایل‌های اصلی DICOM استفاده کنید.</div>
+    <button id="help-ok">شروع</button>
+  </div>
+</div>
+
+<div class="help info" id="info" hidden>
+  <div class="card"><h3>Study details</h3><dl id="infodl"></dl><button id="info-ok">بستن</button></div>
+</div>
+
+<script>
+(async function () {
+  const $ = (s) => document.querySelector(s);
+  const meta = await (await fetch("meta.json")).json();
+  const S = meta.study, series = meta.series;
+
+  // ---------- header ----------
+  const pn = S.PatientName.split("^").map(w => w.charAt(0) + w.slice(1).toLowerCase());
+  $("#pname").textContent = (pn[1] ? pn[1] + " " : "") + pn[0];
+  const age = parseInt(S.PatientAge) || "";
+  const dt = (d) => d ? `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}` : "";
+  $("#psub").textContent = `${S.PatientSex === "M" ? "Male" : S.PatientSex === "F" ? "Female" : ""}${age ? ", " + age + " y" : ""} · ${S.StudyDescription.replace("^", " / ")}`;
+  const chips = [["MR", "mod"], [dt(S.StudyDate) + " " + S.StudyTime.slice(0, 2) + ":" + S.StudyTime.slice(2, 4), ""],
+    [S.MagneticFieldStrength + " T " + S.Manufacturer + " " + S.ManufacturerModelName.replace("_", " "), "opt"],
+    [series.length + " series · " + series.reduce((a, s) => a + s.count, 0) + " images", "opt"]];
+  for (const [t, c] of chips) { const e = document.createElement("span"); e.className = "chip " + c; e.textContent = t; $("#chips").append(e); }
+  const info = [["Patient", $("#pname").textContent], ["Sex / Age", $("#psub").textContent.split(" · ")[0]], ["Study", S.StudyDescription.replace("^", " / ")],
+    ["Date", dt(S.StudyDate)], ["Modality", "MR " + S.MagneticFieldStrength + " T"], ["Scanner", S.Manufacturer + " " + S.ManufacturerModelName],
+    ["Institution", S.InstitutionName], ["Series", String(series.length)]];
+  for (const [k, v] of info) { const a = document.createElement("dt"), b = document.createElement("dd"); a.textContent = k; b.textContent = v; $("#infodl").append(a, b); }
+
+  // ---------- helpers ----------
+  const AX = [["L", "R"], ["P", "A"], ["H", "F"]]; // +x = Left, +y = Posterior, +z = Head
+  function dirLabel(v) {
+    const idx = [0, 1, 2].sort((a, b) => Math.abs(v[b]) - Math.abs(v[a]));
+    return idx.filter(i => Math.abs(v[i]) > 0.25).slice(0, 2).map(i => AX[i][v[i] > 0 ? 0 : 1]).join("");
+  }
+  const neg = (v) => v.map(x => -x);
+  function planeName(o) {
+    if (o.length < 6) return "";
+    const r = o.slice(0, 3), c = o.slice(3, 6);
+    const n = [r[1] * c[2] - r[2] * c[1], r[2] * c[0] - r[0] * c[2], r[0] * c[1] - r[1] * c[0]];
+    const i = [0, 1, 2].reduce((a, b) => Math.abs(n[b]) > Math.abs(n[a]) ? b : a, 0);
+    return ["Sagittal", "Coronal", "Axial"][i];
+  }
+  const nice = (d) => d.replace(/_/g, " ").replace(/\s+/g, " ").trim();
+  function friendly(s) {
+    const d = s.desc.toLowerCase();
+    if (d.startsWith("posdisp")) return "Planning";
+    if (d.includes("localizer")) return "Scout";
+    if (d.includes("adc")) return "ADC map";
+    if (d.includes("tracew") || d.includes("resolve")) return "Diffusion (DWI)";
+    if (d.includes("tirm") || d.includes("dark-fluid") || d.includes("flair")) return "FLAIR";
+    if (d.includes("mip")) return "SWI minIP";
+    if (d.includes("swi")) return "SWI";
+    if (d.startsWith("pha")) return "SWI phase";
+    if (d.startsWith("mag")) return "SWI magnitude";
+    if (d.startsWith("t1")) return "T1";
+    if (d.startsWith("t2")) return "T2";
+    return "";
+  }
+
+  // ---------- series rail ----------
+  const thumbs = new Image(); thumbs.src = "thumbs.webp"; await thumbs.decode().catch(() => {});
+  const T = meta.thumb, railBtns = [];
+  series.forEach((s, k) => {
+    const b = document.createElement("button"); b.className = "ser"; b.id = "ser-" + s.n;
+    const c = document.createElement("canvas"); c.width = c.height = T;
+    c.getContext("2d").drawImage(thumbs, k * T, 0, T, T, 0, 0, T, T);
+    const plane = planeName(s.orient), fr = friendly(s);
+    b.innerHTML = `<span class="t"><span class="k"></span><span class="d"></span><span class="m"></span></span>`;
+    b.prepend(c);
+    b.querySelector(".k").textContent = [fr, plane].filter(Boolean).join(" · ");
+    b.querySelector(".d").textContent = nice(s.desc);
+    b.querySelector(".m").textContent = `#${s.n} · ${s.count} img` + (s.st ? ` · ${+s.st.toFixed(1)} mm` : "");
+    b.title = `Series ${s.n}: ${s.desc}`;
+    b.onclick = () => { active.load(k); if (window.innerWidth <= 760) b.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" }); };
+    $("#rail").append(b); railBtns.push(b);
+  });
+  function markRail() { railBtns.forEach((b, k) => b.classList.toggle("on", viewports.some(v => v.si === k && v.el.isConnected))); }
+
+  // ---------- sheet cache ----------
+  const sheets = new Map();
+  function getSheet(k) {
+    if (!sheets.has(k)) {
+      sheets.set(k, (async () => {
+        const img = new Image(); img.src = series[k].file; await img.decode();
+        const s = series[k], c = document.createElement("canvas"); c.width = img.width; c.height = img.height;
+        const g = c.getContext("2d", { willReadFrequently: true }); g.drawImage(img, 0, 0);
+        const all = g.getImageData(0, 0, c.width, c.height).data, tiles = [];
+        for (let i = 0; i < s.count; i++) {
+          const ox = (i % s.cols) * s.tw, oy = Math.floor(i / s.cols) * s.th, a = new Uint8Array(s.tw * s.th);
+          for (let y = 0; y < s.th; y++) { const row = ((oy + y) * c.width + ox) * 4; for (let x = 0; x < s.tw; x++) a[y * s.tw + x] = all[row + x * 4]; }
+          tiles.push(a);
+        }
+        return tiles;
+      })());
+    }
+    return sheets.get(k);
+  }
+
+  // ---------- viewport ----------
+  let tool = "scroll", invert = false, sync = false, playing = null;
+  class Viewport {
+    constructor() {
+      const el = this.el = document.createElement("div"); el.className = "vp"; el.tabIndex = 0;
+      el.innerHTML = `<canvas></canvas><div class="ov tl"></div><div class="ov tr"></div><div class="ov bl"></div><div class="ov br"></div>
+        <div class="om l"></div><div class="om r"></div><div class="om t"></div><div class="om b"></div>
+        <div class="load" hidden>Loading…</div><div class="bar"><input type="range" min="1" value="1" aria-label="Slice"><span class="n"></span></div>`;
+      this.cv = el.querySelector("canvas"); this.g = this.cv.getContext("2d");
+      this.tile = document.createElement("canvas"); this.tg = this.tile.getContext("2d");
+      this.range = el.querySelector("input"); this.range.id = "slice-" + Viewport.count++;
+      this.range.oninput = () => this.go(this.range.value - 1, true);
+      this.si = -1; this.i = 0; this.tiles = null;
+      new ResizeObserver(() => this.draw()).observe(el);
+      this.bind();
+    }
+    async load(k, keepPos) {
+      const s = series[k], prevLoc = this.tiles && this.locNow();
+      this.si = k; this.s = s; this.tiles = null; markRail();
+      this.el.querySelector(".load").hidden = false;
+      this.reset(true);
+      this.i = Math.floor(s.count / 2);
+      this.range.max = s.count;
+      const tiles = await getSheet(k);
+      if (this.si !== k) return;
+      this.tiles = tiles; this.el.querySelector(".load").hidden = true;
+      this.tile.width = s.tw; this.tile.height = s.th; this.img = this.tg.createImageData(s.tw, s.th);
+      const o = s.orient;
+      if (o.length === 6) {
+        const r = o.slice(0, 3), c = o.slice(3, 6);
+        this.ori = { r: dirLabel(r), l: dirLabel(neg(r)), b: dirLabel(c), t: dirLabel(neg(c)) };
+      } else this.ori = null;
+      if (keepPos && prevLoc != null) this.goLoc(prevLoc); else this.go(this.i);
+    }
+    locNow() { return this.s && this.s.loc[this.i]; }
+    goLoc(L) {
+      if (L == null || !this.s) return;
+      let best = 0, bd = Infinity; this.s.loc.forEach((x, j) => { if (x != null && Math.abs(x - L) < bd) { bd = Math.abs(x - L); best = j; } });
+      this.go(best, "sync");
+    }
+    go(i, fromUser) {
+      if (!this.s) return;
+      this.i = Math.max(0, Math.min(this.s.count - 1, Math.round(i)));
+      this.range.value = this.i + 1; this.draw();
+      if (fromUser !== "sync" && sync && layout === 2) {
+        const other = viewports.find(v => v !== this && v.el.isConnected && v.s);
+        if (other && planeName(other.s.orient) === planeName(this.s.orient)) { other.goLoc(this.locNow()); }
+      }
+    }
+    reset(keepSlice) { if (this.s) { this.wc = this.s.wc; this.ww = this.s.ww; } this.zoom = 1; this.px = 0; this.py = 0; if (!keepSlice) this.draw(); }
+    render() {
+      const s = this.s, a = this.tiles[this.i], d = this.img.data;
+      const lut = new Uint8ClampedArray(256), lo = this.wc - this.ww / 2;
+      for (let p = 0; p < 256; p++) { let v = ((s.lo + p / 255 * (s.hi - s.lo)) - lo) / this.ww * 255; if (invert) v = 255 - v; lut[p] = v; }
+      for (let j = 0, q = 0; j < a.length; j++, q += 4) { const v = lut[a[j]]; d[q] = d[q + 1] = d[q + 2] = v; d[q + 3] = 255; }
+      this.tg.putImageData(this.img, 0, 0);
+    }
+    geom() {
+      const s = this.s, W = this.cv.width, H = this.cv.height;
+      const iw = s.tw * s.ps[1], ih = s.th * s.ps[0];
+      const base = Math.min(W / iw, H / ih) * 0.96, sc = base * this.zoom;
+      return { w: iw * sc, h: ih * sc, x: (W - iw * sc) / 2 + this.px * devicePixelRatio, y: (H - ih * sc) / 2 + this.py * devicePixelRatio, mmPerPx: 1 / sc * devicePixelRatio };
+    }
+    draw() {
+      const r = this.el.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+      const W = Math.max(1, Math.round(r.width * dpr)), H = Math.max(1, Math.round(r.height * dpr));
+      if (this.cv.width !== W || this.cv.height !== H) { this.cv.width = W; this.cv.height = H; }
+      const g = this.g; g.fillStyle = "#000"; g.fillRect(0, 0, W, H);
+      if (!this.tiles) { this.overlay(); return; }
+      this.render();
+      const m = this.geom(); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
+      g.drawImage(this.tile, m.x, m.y, m.w, m.h);
+      // scale bar: 5 cm when it fits, else 1 cm
+      let mm = 50, len = mm / m.mmPerPx * dpr;
+      if (len > W * 0.35) { mm = 10; len = mm / m.mmPerPx * dpr; }
+      const x0 = W - 18 * dpr, y0 = H * 0.74;
+      g.strokeStyle = "#f1d27a"; g.lineWidth = 1.5 * dpr; g.beginPath(); g.moveTo(x0, y0 - len / 2); g.lineTo(x0, y0 + len / 2);
+      const ticks = mm === 50 ? 5 : 1;
+      for (let t = 0; t <= ticks; t++) { const yy = y0 - len / 2 + len * t / ticks, w = (t === 0 || t === ticks) ? 7 : 4; g.moveTo(x0 - w * dpr, yy); g.lineTo(x0, yy); }
+      g.stroke(); this.scaleMm = mm;
+      this.overlay();
+    }
+    overlay() {
+      const q = (c) => this.el.querySelector(c), s = this.s;
+      if (!s) { q(".tl").textContent = "Pick a series"; return; }
+      const fr = friendly(s), pl = planeName(s.orient);
+      q(".tl").textContent = `${nice(s.desc)}\n${[fr, pl].filter(Boolean).join(" · ")}\nSe ${s.n}  Im ${s.inst[this.i]}`;
+      q(".tr").textContent = `${$("#pname").textContent}\n${dt(S.StudyDate)}\n${S.MagneticFieldStrength} T MR`;
+      const loc = s.loc[this.i];
+      q(".bl").textContent = (s.tr ? `TR ${Math.round(s.tr)}  ` : "") + (s.te ? `TE ${Math.round(s.te)}\n` : "\n") + (s.st ? `ST ${+s.st.toFixed(1)} mm` : "") + (loc != null ? `  Loc ${loc.toFixed(1)}` : "");
+      q(".br").textContent = `W ${Math.round(this.ww)}  L ${Math.round(this.wc)}\nZoom ${Math.round(this.zoom * 100)}%` + (this.scaleMm ? `  ▮ ${this.scaleMm / 10} cm` : "");
+      q(".n").textContent = `${this.i + 1} / ${s.count}`;
+      const o = this.ori || {};
+      q(".om.l").textContent = o.l || ""; q(".om.r").textContent = o.r || ""; q(".om.t").textContent = o.t || ""; q(".om.b").textContent = o.b || "";
+    }
+    bind() {
+      const el = this.el, ptrs = new Map(); let last = null, pinch = null, acc = 0;
+      el.addEventListener("pointerdown", (e) => {
+        if (e.target.closest(".bar")) return;
+        setActive(this); el.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        last = { x: e.clientX, y: e.clientY, b: e.button }; acc = 0;
+        if (ptrs.size === 2) { const [p1, p2] = [...ptrs.values()]; pinch = { d: Math.hypot(p1.x - p2.x, p1.y - p2.y), z: this.zoom, cx: (p1.x + p2.x) / 2, cy: (p1.y + p2.y) / 2, px: this.px, py: this.py }; }
+      });
+      el.addEventListener("pointermove", (e) => {
+        if (!ptrs.has(e.pointerId) || !this.s) return;
+        ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (ptrs.size === 2 && pinch) {
+          const [p1, p2] = [...ptrs.values()], d = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+          this.zoom = Math.max(0.3, Math.min(12, pinch.z * d / pinch.d));
+          this.px = pinch.px + (p1.x + p2.x) / 2 - pinch.cx; this.py = pinch.py + (p1.y + p2.y) / 2 - pinch.cy; this.draw(); return;
+        }
+        const dx = e.clientX - last.x, dy = e.clientY - last.y; last.x = e.clientX; last.y = e.clientY;
+        let t = tool; if (last.b === 2) t = "wl"; else if (last.b === 1) t = "pan";
+        if (t === "scroll") { acc += dy; const step = Math.max(4, el.clientHeight / Math.max(this.s.count * 1.5, 20)); while (Math.abs(acc) >= step) { this.go(this.i + Math.sign(acc)); acc -= Math.sign(acc) * step; } }
+        else if (t === "wl") { const k = (this.s.hi - this.s.lo) / 400; this.ww = Math.max(1, this.ww + dx * k); this.wc = this.wc - dy * k; this.draw(); }
+        else if (t === "zoom") { this.zoom = Math.max(0.3, Math.min(12, this.zoom * Math.exp(-dy * 0.01))); this.draw(); }
+        else if (t === "pan") { this.px += dx; this.py += dy; this.draw(); }
+      });
+      const up = (e) => { ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null; if (ptrs.size === 1) { const p = [...ptrs.values()][0]; last = { x: p.x, y: p.y, b: 0 }; } };
+      el.addEventListener("pointerup", up); el.addEventListener("pointercancel", up);
+      el.addEventListener("contextmenu", (e) => e.preventDefault());
+      el.addEventListener("wheel", (e) => {
+        e.preventDefault(); if (!this.s) return; setActive(this);
+        if (e.ctrlKey || e.metaKey) { this.zoom = Math.max(0.3, Math.min(12, this.zoom * Math.exp(-e.deltaY * 0.0025))); this.draw(); }
+        else { this.wacc = (this.wacc || 0) + e.deltaY; const st = Math.abs(e.deltaY) < 40 ? 40 : 1; while (Math.abs(this.wacc) >= st) { this.go(this.i + Math.sign(this.wacc)); this.wacc -= Math.sign(this.wacc) * st; } if (st === 1) this.wacc = 0; }
+      }, { passive: false });
+      el.addEventListener("dblclick", () => { this.reset(); });
+    }
+  }
+  Viewport.count = 0;
+
+  const viewports = [new Viewport(), new Viewport()];
+  let active = viewports[0], layout = 1;
+  function setActive(v) { active = v; viewports.forEach(x => x.el.classList.toggle("act", x === v)); }
+  function setLayout(n) {
+    layout = n; const m = $("#main"); m.className = "main l" + n; m.replaceChildren(...viewports.slice(0, n).map(v => v.el));
+    $("#t-l1").setAttribute("aria-pressed", n === 1); $("#t-l2").setAttribute("aria-pressed", n === 2);
+    if (n === 1) setActive(viewports[0]);
+    if (n === 2 && viewports[1].si < 0) { const k = series.findIndex(s => friendly(s) === "T2" && planeName(s.orient) === "Axial"); viewports[1].load(k >= 0 ? k : 0); }
+    if (n === 2) setActive(viewports[1]);
+    markRail(); requestAnimationFrame(() => viewports.forEach(v => v.draw()));
+  }
+
+  // ---------- toolbar ----------
+  document.querySelectorAll("[data-tool]").forEach(b => b.onclick = () => {
+    tool = b.dataset.tool; document.querySelectorAll("[data-tool]").forEach(x => x.setAttribute("aria-pressed", x === b));
+  });
+  function togglePlay() {
+    if (playing) { clearInterval(playing); playing = null; }
+    else playing = setInterval(() => { const v = active; if (v.s) v.go((v.i + 1) % v.s.count); }, 110);
+    $("#t-play").setAttribute("aria-pressed", !!playing);
+  }
+  $("#t-play").onclick = togglePlay;
+  $("#t-inv").onclick = () => { invert = !invert; $("#t-inv").setAttribute("aria-pressed", invert); viewports.forEach(v => v.draw()); };
+  $("#t-fit").onclick = () => active.reset();
+  $("#t-l1").onclick = () => setLayout(1);
+  $("#t-l2").onclick = () => setLayout(2);
+  $("#t-sync").onclick = () => { sync = !sync; $("#t-sync").setAttribute("aria-pressed", sync); if (sync) active.go(active.i); };
+  $("#t-help").onclick = () => { $("#help").hidden = false; };
+  $("#help-ok").onclick = () => { $("#help").hidden = true; try { localStorage.setItem("seenHelp", "1"); } catch (e) {} };
+  $("#t-info").onclick = () => { $("#info").hidden = false; };
+  $("#info-ok").onclick = () => { $("#info").hidden = true; };
+  for (const id of ["#help", "#info"]) $(id).addEventListener("click", (e) => { if (e.target === e.currentTarget) e.currentTarget.hidden = true; });
+  try { if (localStorage.getItem("seenHelp")) $("#help").hidden = true; } catch (e) {}
+  document.addEventListener("keydown", (e) => {
+    if (e.target.tagName === "INPUT") return;
+    const v = active;
+    if (e.key === "ArrowDown" || e.key === "ArrowRight") { v.go(v.i + 1); e.preventDefault(); }
+    else if (e.key === "ArrowUp" || e.key === "ArrowLeft") { v.go(v.i - 1); e.preventDefault(); }
+    else if (e.key === " ") { togglePlay(); e.preventDefault(); }
+    else if (e.key === "i" || e.key === "I") $("#t-inv").click();
+    else if (e.key === "r" || e.key === "R") v.reset();
+    else if (e.key === "Escape") { $("#help").hidden = true; $("#info").hidden = true; }
+  });
+
+  // ---------- start: FLAIR axial is the usual first look for a brain MR ----------
+  setLayout(1);
+  let start = series.findIndex(s => friendly(s) === "FLAIR");
+  if (start < 0) start = series.findIndex(s => s.count > 5);
+  viewports[0].load(start);
+})();
+</script>
+</body>
+</html>
