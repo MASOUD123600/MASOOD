@@ -209,9 +209,21 @@ nav.bottom button[aria-current="page"]{color:var(--accent);font-weight:800}
 
   <!-- ========== BOARD ========== -->
   <section class="view" id="v-board" hidden>
-    <div class="card prodrow">
-      <label class="f"><span>تعداد پخت این روز (پرس)</span><input id="prodIn" inputmode="numeric" placeholder="مثلاً ۱۸۰۰۰"></label>
-      <button class="btn primary" id="prodSave">ثبت پخت</button>
+    <div class="card" style="display:flex;flex-direction:column;gap:14px">
+      <div class="prodrow">
+        <label class="f"><span>تعداد کل پخت این روز (پرس)</span><input id="prodIn" inputmode="numeric" placeholder="مثلاً ۱۸۰۰۰"></label>
+        <button class="btn primary" id="prodSave">ثبت پخت</button>
+      </div>
+      <div class="prodrow">
+        <label class="f"><span>اضافه یا کم شدن پخت (پرس)</span><input id="deltaIn" inputmode="numeric" placeholder="مثلاً ۵۰۰"></label>
+        <button class="btn primary" id="deltaAdd">+ اضافه شد</button>
+        <button class="btn danger" id="deltaSub">− کم شد</button>
+      </div>
+      <div class="prodrow">
+        <label class="f"><span>تعداد نیروهای آشپزخانه (هر نفر ۴ پرس)</span><input id="staffIn" inputmode="numeric" placeholder="مثلاً ۶۰"></label>
+        <button class="btn primary" id="staffSave">ثبت نیروها</button>
+      </div>
+      <div id="prodHist" class="muted" style="font-size:13px"></div>
     </div>
     <div id="boardAlert"></div>
     <div class="kpis" id="kpis"></div>
