@@ -85,11 +85,14 @@ const S={date:todayISO(),view:'deliver',filter:'all',lookup:'',editingId:null,la
 const allocs=()=>DATA.allocs||[];
 const active=a=>a.status!=='cancelled';
 const forDay=d=>allocs().filter(a=>a.date===d).sort((a,b)=>(a.time||'').localeCompare(b.time||'')||a.heyat.localeCompare(b.heyat,'fa'));
+const PACK=4; // portions per kitchen staff member
 function dayStats(d){
   const list=forDay(d).filter(active);const day=DATA.days?.[d];const prod=Number(day?.production||0);
+  const staff=Number(day?.staff||0),staffQty=staff*Number(day?.staffPack||PACK);
+  // commitment: a delivered heyat counts with what it actually took (may be less than its share)
   let alloc=0,deliv=0,pend=0,nDone=0,nPend=0;
-  list.forEach(a=>{alloc+=Number(a.qty||0);if(a.status==='delivered'){deliv+=Number(a.deliveredQty??a.qty??0);nDone++}else{pend+=Number(a.qty||0);nPend++}});
-  return {prod,alloc,deliv,pend,nDone,nPend,n:list.length,stock:prod-deliv,free:prod-alloc,hasProd:!!day};
+  list.forEach(a=>{if(a.status==='delivered'){const q=Number(a.deliveredQty??a.qty??0);deliv+=q;alloc+=q;nDone++}else{pend+=Number(a.qty||0);alloc+=Number(a.qty||0);nPend++}});
+  return {prod,alloc,deliv,pend,nDone,nPend,n:list.length,staff,staffQty,stock:prod-deliv-staffQty,free:prod-alloc-staffQty,hasProd:!!day&&day.production!=null};
 }
 function minutesFromNow(a){const t=parseISO(a.date);const[h,m]=(a.time||'00:00').split(':').map(Number);t.setHours(h,m,0,0);return Math.round((Date.now()-t)/60000)}
 function dur(m){const h=Math.floor(m/60),r=m%60;return (h?fa(h)+' ساعت':'')+(h&&r?' و ':'')+(r?fa(r)+' دقیقه':'')}
@@ -133,7 +136,8 @@ function fillDateSelect(sel,center,value){
   if(value&&(value<addDays(t,-30)||value>addDays(t,75)))h=`<option value="${value}">${esc(dLong(value))}</option>`+h;
   sel.innerHTML=h;sel.value=value||center;
 }
-function setDate(d){S.date=d;$('#dSel').value=d;$('#prodIn').value=DATA.days?.[d]?.production||'';render()}
+function fillDayInputs(){const day=DATA.days?.[S.date];if(document.activeElement!==$('#prodIn'))$('#prodIn').value=day?.production??'';if(document.activeElement!==$('#staffIn'))$('#staffIn').value=day?.staff||''}
+function setDate(d){S.date=d;$('#dSel').value=d;fillDayInputs();render()}
 
 /* ================= views ================= */
 const VIEWS=['deliver','board','plan','report','settings'];
@@ -207,12 +211,16 @@ function renderBoard(st){
     ['hero','پرس مانده برای تحویل',fa(st.pend)],
     ['','پخت روز',st.hasProd?fa(st.prod):'—'],
     ['','تحویل‌شده',fa(st.deliv)],
-    ['','موجودی آشپزخانه (پخت − تحویل)',st.hasProd?fa(st.stock):'—'],
-    [st.free<0?'neg':'','ظرفیت آزاد (پخت − تعهد)',st.hasProd?fa(st.free):'—'],
+    ['','موجودی آشپزخانه (پخت − تحویل − نیروها)',st.hasProd?fa(st.stock):'—'],
+    [st.free<0?'neg':'','ظرفیت آزاد (پخت − تعهد − نیروها)',st.hasProd?fa(st.free):'—'],
     ['','هیئت‌ها: تحویل‌گرفته / کل',fa(st.nDone)+' / '+fa(st.n)],
+    ['','غذای نیروهای آشپزخانه',st.staff?fa(st.staff)+' نفر × ۴ = '+fa(st.staffQty):'—'],
+    ['','تعهد هیئت‌ها',fa(st.alloc)],
   ].map(([c,l,v])=>`<div class="kpi ${c}"><span>${l}</span><b>${v}</b></div>`).join('');
-  const base=Math.max(st.prod,st.alloc,1);
-  const seg=[[st.deliv,'var(--ok)','تحویل‌شده'],[st.pend,'var(--saffron)','در انتظار تحویل'],[Math.max(st.free,0),'var(--line)','آزاد / بدون نوبت']];
+  const base=Math.max(st.prod,st.alloc+st.staffQty,1);
+  const seg=[[st.deliv,'var(--ok)','تحویل‌شده'],[st.pend,'var(--saffron)','در انتظار تحویل'],[st.staffQty,'#6f8fd6','نیروهای آشپزخانه'],[Math.max(st.free,0),'var(--line)','آزاد / بدون نوبت']];
+  const day=DATA.days?.[S.date];const hist=[];if(day?.base!=null)hist.push('پخت اولیه '+fa(day.base));(day?.changes||[]).forEach(c=>hist.push((c.delta>0?'+':'−')+fa(Math.abs(c.delta))+' ساعت '+fClock.format(new Date(c.at))+(c.by?' ('+c.by+')':'')));
+  $('#prodHist').textContent=hist.length?'سابقه پخت: '+hist.join(' · ')+' = '+fa(st.prod):'';
   $('#bar').innerHTML=seg.map(([v,c])=>`<i style="width:${v/base*100}%;background:${c}"></i>`).join('');
   $('#legend').innerHTML=seg.map(([v,c,l])=>`<span><i style="background:${c}"></i>${l}: <b class="num">${fa(v)}</b></span>`).join('');
   document.querySelectorAll('#filterTabs button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.f===S.filter));
@@ -230,8 +238,8 @@ function capHint(){
   const used=st.alloc-(ex&&ex.date===d&&active(ex)?Number(ex.qty):0);const q=toInt($('#fQty').value);
   const el=$('#capHint');
   if(!st.hasProd){el.className='cap';el.innerHTML=`پخت ${esc(dLong(d))} هنوز ثبت نشده · تا الان ${fa(used)} پرس به ${fa(st.n)} هیئت تعهد شده.`;return}
-  const after=st.prod-used-q;el.className='cap'+(after<0?' neg':'');
-  el.innerHTML=`پخت ${esc(dShort(d))}: <b class="num">${fa(st.prod)}</b> · تعهد شده: <b class="num">${fa(used)}</b> · ${after<0?'بعد از این نوبت <b>کسری '+fa(-after)+'</b> پرس':'بعد از این نوبت آزاد می‌ماند: <b class="num">'+fa(after)+'</b>'}`;
+  const after=st.prod-st.staffQty-used-q;el.className='cap'+(after<0?' neg':'');
+  el.innerHTML=`پخت ${esc(dShort(d))}: <b class="num">${fa(st.prod)}</b>${st.staffQty?' · نیروها: <b class="num">'+fa(st.staffQty)+'</b>':''} · تعهد شده: <b class="num">${fa(used)}</b> · ${after<0?'بعد از این نوبت <b>کسری '+fa(-after)+'</b> پرس':'بعد از این نوبت آزاد می‌ماند: <b class="num">'+fa(after)+'</b>'}`;
 }
 function renderPlan(){
   const names=[...new Set(allocs().map(a=>a.heyat))].sort((a,b)=>a.localeCompare(b,'fa'));
@@ -328,7 +336,22 @@ $('#codeClear').addEventListener('click',()=>{$('#codeIn').value='';S.lookup='';
 $('#filterTabs').addEventListener('click',e=>{const b=e.target.closest('button[data-f]');if(b){S.filter=b.dataset.f;render()}});
 $('#prodSave').addEventListener('click',()=>{
   const v=toInt($('#prodIn').value);if(v<=0)return toast('تعداد پخت را وارد کنید');const day=S.date;
-  act(()=>commit(d=>{d.days=d.days||{};d.days[day]={date:day,production:v,updatedAt:new Date().toISOString(),updatedBy:CFG.name||''};logEntry(d,'prod',`پخت ${dShort(day)} = ${fa(v)} پرس`)},'production '+day),'پخت '+dShort(day)+': '+fa(v)+' پرس');
+  act(()=>commit(d=>{d.days=d.days||{};const old=d.days[day]||{};d.days[day]={...old,date:day,production:v,base:v,changes:[],updatedAt:new Date().toISOString(),updatedBy:CFG.name||''};logEntry(d,'prod',`پخت ${dShort(day)} = ${fa(v)} پرس`)},'production '+day),'پخت '+dShort(day)+': '+fa(v)+' پرس');
+});
+function changeProd(sign){
+  const v=toInt($('#deltaIn').value);if(v<=0)return toast('مقدار را وارد کنید، مثلاً ۵۰۰');const day=S.date;
+  act(()=>commit(d=>{d.days=d.days||{};const o=d.days[day]||{date:day,production:0,base:0};
+    if(o.base==null)o.base=Number(o.production||0);
+    const np=Number(o.production||0)+sign*v;if(np<0)throw new Error('پخت نمی‌تواند منفی شود');
+    o.production=np;(o.changes=o.changes||[]).push({delta:sign*v,at:new Date().toISOString(),by:CFG.name||''});o.updatedAt=new Date().toISOString();d.days[day]=o;
+    logEntry(d,'prod',`پخت ${dShort(day)} ${sign>0?'+':'−'}${fa(v)} پرس ← ${fa(np)}`)},'production change '+day),
+    (sign>0?'اضافه شد: ':'کم شد: ')+fa(v)+' پرس').then(ok=>{if(ok){$('#deltaIn').value='';fillDayInputs()}});
+}
+$('#deltaAdd').addEventListener('click',()=>changeProd(1));
+$('#deltaSub').addEventListener('click',()=>armed($('#deltaSub'),'کم شود؟ دوباره بزنید',()=>changeProd(-1)));
+$('#staffSave').addEventListener('click',()=>{
+  const n=toInt($('#staffIn').value);if(n<0)return;const day=S.date;
+  act(()=>commit(d=>{d.days=d.days||{};const o=d.days[day]||{date:day};o.staff=n;o.staffPack=PACK;d.days[day]=o;logEntry(d,'staff',`نیروهای آشپزخانه ${dShort(day)}: ${fa(n)} نفر × ۴ = ${fa(n*PACK)} پرس`)},'staff '+day),'نیروها: '+fa(n)+' نفر = '+fa(n*PACK)+' پرس');
 });
 document.addEventListener('click',async e=>{
   const st=e.target.closest('[data-step]');
@@ -382,7 +405,7 @@ $('#cForget').addEventListener('click',e=>armed(e.target,'توکن از این �
 /* ================= polling ================= */
 async function tick(){
   if(!CFG||document.hidden)return;
-  try{const changed=await pull(false);setSync(true);if(changed){if(document.activeElement!==$('#prodIn'))$('#prodIn').value=DATA.days?.[S.date]?.production||'';render()}}
+  try{const changed=await pull(false);setSync(true);if(changed){fillDayInputs();render()}}
   catch(e){setSync(false,/fetch|network|Failed/i.test(e.message)?null:e.message)}
 }
 setInterval(tick,15000);
@@ -392,7 +415,7 @@ window.addEventListener('online',tick);
 
 /* ================= boot ================= */
 fillDateSelect($('#dSel'),S.date,S.date);fillDateSelect($('#fDate'),S.date,S.date);
-$('#prodIn').value=DATA.days?.[S.date]?.production||'';
+fillDayInputs();
 const hv=(location.hash||'').slice(1);
 setView(!CFG?'settings':(VIEWS.includes(hv)?hv:'deliver'));
 setSync(!!CFG);if(CFG){$('#sync').textContent='در حال همگام‌سازی…';tick()}
