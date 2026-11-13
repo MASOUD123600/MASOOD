@@ -1,24 +1,18 @@
-<title>تحویل غذای هیئت‌ها</title>
+<title>مضیف الزهراء</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;700;800&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Aref+Ruqaa:wght@400;700&family=Vazirmatn:wght@400;500;700;800&display=swap">
 <style>
-/* Layout: mobile-first RTL app — sticky header with date, one view at a time, fixed bottom tab bar */
+/* Layout: mobile-first RTL app — mozif-arch header with gold calligraphy, one view at a time, fixed bottom tab bar.
+   Deliberately single-theme: mourning black with gold, like a heyat hall at night. */
 :root{
-  --bg:#f3f5f2; --surface:#ffffff; --sunk:#e9eee9; --ink:#16201a; --muted:#5a685f; --line:#d9e0da;
-  --accent:#1c6a4b; --accent-ink:#ffffff; --saffron:#b97c0c;
-  --ok:#1b7a48; --warn:#a96d10; --bad:#b3362e;
+  --bg:#0c0b09; --surface:#16140f; --sunk:#221f17; --ink:#f2ead7; --muted:#a99e85; --line:#34301f;
+  --accent:#cfa649; --accent-ink:#17120a; --saffron:#e08a2e;
+  --ok:#5fb383; --warn:#e3a94a; --bad:#e2665b;
   --font:"Vazirmatn",Tahoma,"Segoe UI",sans-serif;
-  --nav-h:64px;
+  --display:"Aref Ruqaa","Amiri","Traditional Arabic",serif;
+  --nav-h:64px; color-scheme:dark;
 }
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
-  --bg:#0e1411; --surface:#161f1a; --sunk:#1d2822; --ink:#e6ede8; --muted:#97a69d; --line:#2a362f;
-  --accent:#43ad7f; --accent-ink:#06130d; --saffron:#e0a73a;
-  --ok:#4cbc80; --warn:#e2a846; --bad:#e46a5f; color-scheme:dark;}}
-:root[data-theme="dark"]{
-  --bg:#0e1411; --surface:#161f1a; --sunk:#1d2822; --ink:#e6ede8; --muted:#97a69d; --line:#2a362f;
-  --accent:#43ad7f; --accent-ink:#06130d; --saffron:#e0a73a;
-  --ok:#4cbc80; --warn:#e2a846; --bad:#e46a5f; color-scheme:dark;}
 *{box-sizing:border-box}
 html,body{background:var(--bg)}
 body{color:var(--ink);font-family:var(--font);font-size:15px;line-height:1.6;direction:rtl;
@@ -28,10 +22,18 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 button,input,select,textarea{font:inherit;color:inherit}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .wrap{max-width:760px;margin:0 auto}
-header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:12px 10px;border-bottom:1px solid var(--line);margin-bottom:16px}
+header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:12px 0;margin-bottom:16px}
+header.top::after{content:"";display:block;height:12px;margin-top:10px;opacity:.6;
+  background:radial-gradient(circle at 50% 100%,transparent 6px,var(--accent) 6.5px 7.6px,transparent 8.1px) 0 0/18px 12px repeat-x;
+  border-bottom:1px solid var(--accent)}
 .brand{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-.brand h1{font-size:18px;font-weight:800;margin:0;letter-spacing:-.2px}
-.brand h1 small{display:block;font-size:12px;font-weight:500;color:var(--muted)}
+.brand .id{display:flex;align-items:center;gap:10px;min-width:0}
+.brand .mark{width:44px;height:38px;color:var(--accent);flex:none}
+.brand h1{margin:0;line-height:1.1}
+.brand h1 .org{display:block;font-family:var(--display);font-size:30px;font-weight:700;color:var(--accent);letter-spacing:0}
+.brand h1 small{display:block;font-size:12px;font-weight:500;color:var(--muted);margin-top:4px}
+.welcome{font-family:var(--display);font-size:22px;color:var(--accent);text-align:center;margin:0}
+.result .who{font-family:var(--display);color:var(--accent)}
 .datebar{display:flex;align-items:center;gap:6px}
 .datebar select{min-width:0;max-width:200px}
 .iconbtn{border:1px solid var(--line);background:var(--surface);border-radius:10px;width:36px;height:36px;display:grid;place-items:center;cursor:pointer;font-size:16px}
@@ -151,7 +153,10 @@ nav.bottom button[aria-current="page"]{color:var(--accent);font-weight:800}
 <div class="wrap">
   <header class="top">
     <div class="brand">
-      <h1>تحویل غذای هیئت‌ها<small id="hdrSub">در حال اتصال…</small></h1>
+      <div class="id">
+        <svg class="mark" viewBox="0 0 48 40" fill="none" stroke="currentColor" aria-hidden="true"><path d="M4 38C4 8 44 8 44 38" stroke-width="2.4"/><path d="M12 38C12 19 36 19 36 38" stroke-width="1.4"/><path d="M1 38h46" stroke-width="2"/><path d="M18 38v-7M24 38v-9M30 38v-7" stroke-width="1.2"/></svg>
+        <h1><span class="org">مضیف الزهراء</span><small id="hdrSub">سامانه تحویل نذری</small></h1>
+      </div>
       <div class="datebar">
         <button class="iconbtn" id="dPrev" aria-label="روز قبل">›</button>
         <select id="dSel" aria-label="انتخاب روز"></select>
@@ -160,13 +165,13 @@ nav.bottom button[aria-current="page"]{color:var(--accent);font-weight:800}
     </div>
   </header>
 
-  <div id="roBanner" class="banner warn" hidden style="margin-bottom:12px">شما فقط اجازه دیدن دارید. برای ثبت تحویل، مالک صفحه باید به شما دسترسی ویرایش بدهد.</div>
   <div id="connBanner" class="banner bad" hidden style="margin-bottom:12px"></div>
 
   <!-- ========== DELIVER ========== -->
   <section class="view" id="v-deliver">
     <div class="card codebox">
-      <h2>کد تحویل نماینده</h2>
+      <p class="welcome">خوش آمدید</p>
+      <h2 style="text-align:center">کد تحویل هیئت را وارد کنید</h2>
       <input id="codeIn" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="----" aria-label="کد تحویل">
       <div style="display:flex;gap:8px">
         <button class="btn primary" id="codeGo" style="flex:1">نمایش سهم</button>
@@ -356,7 +361,7 @@ function rowHTML(a,withActs){
   const q=done?Number(a.deliveredQty??a.qty):Number(a.qty);
   const sub=[`<span>ساعت ${faDig(a.time||'—')}</span>`,`<span>کد ${faDig(a.code)}</span>`];
   if(a.rep)sub.push(`<span>${esc(a.rep)}</span>`);
-  if(done)sub.push(`<span class="chip ok">تحویل ${esc(fClock.format(new Date(a.deliveredAt)))}${a.deliveredBy?' · '+esc(nameOf(a.deliveredBy)):''}</span>`);
+  if(done)sub.push(`<span class="chip ok">تحویل ${esc(fClock.format(new Date(a.deliveredAt)))}</span>`);
   if(done&&Number(a.deliveredQty)!==Number(a.qty))sub.push(`<span class="chip warn">کمتر از سهم: ${fa(a.qty)}</span>`);
   if(late)sub.push(`<span class="chip bad">دیر کرده</span>`);
   if(cancel)sub.push(`<span class="chip mute">لغو شده</span>`);
@@ -384,7 +389,7 @@ function renderDeliver(st){
   const a=m[0];
   if(a.status==='delivered'){
     box.innerHTML=`<div class="card result" style="border-color:var(--bad)"><div class="banner bad"><b>این سهم قبلاً تحویل داده شده است.</b></div><div class="who">${esc(a.heyat)}</div>
-    <dl class="kv"><dt>تحویل شده</dt><dd class="num">${fa(a.deliveredQty??a.qty)} پرس</dd><dt>زمان تحویل</dt><dd>${esc(fStamp.format(new Date(a.deliveredAt)))}</dd><dt>تحویل‌دهنده</dt><dd>${esc(nameOf(a.deliveredBy)||'—')}</dd><dt>نوبت</dt><dd>${esc(dLong(a.date))} · ساعت ${faDig(a.time)}</dd></dl>
+    <dl class="kv"><dt>تحویل شده</dt><dd class="num">${fa(a.deliveredQty??a.qty)} پرس</dd><dt>زمان تحویل</dt><dd>${esc(fStamp.format(new Date(a.deliveredAt)))}</dd><dt>نوبت</dt><dd>${esc(dLong(a.date))} · ساعت ${faDig(a.time)}</dd></dl>
     ${S.canWrite?`<button class="btn danger" data-act="undo" data-id="${a.id}">برگرداندن تحویل (اگر اشتباه ثبت شده)</button>`:''}</div>`;return;
   }
   const tm=timing(a);
@@ -449,13 +454,13 @@ function renderPlan(){
   const sb=$('#shareBox');
   if(S.lastShare){sb.innerHTML=`<div class="card" style="display:flex;flex-direction:column;gap:10px"><h3>پیام برای هیئت (کپی کنید و پیامک یا پیام‌رسان بفرستید)</h3><div class="share" id="shareText">${esc(S.lastShare)}</div><div style="display:flex;gap:8px"><button class="btn primary" id="copyShare">کپی متن</button><button class="btn" id="closeShare">بستن</button></div></div>`}else sb.innerHTML='';
 }
-function shareText(a){return `سلام، ${a.heyat}${a.rep?' — '+a.rep:''}\nسهم غذای شما: ${fa(a.qty)} پرس\nروز تحویل: ${dFull(a.date)}\nساعت تحویل: ${faDig(a.time)}\nکد تحویل: ${faDig(a.code)}\nلطفاً نماینده هنگام تحویل این کد را اعلام کند. کد فقط یک بار قابل استفاده است.`}
+function shareText(a){return `بسم الله\nمضیف الزهراء — ${a.heyat}${a.rep?' (جناب '+a.rep+')':''}\nسهم غذای شما: ${fa(a.qty)} پرس\nروز تحویل: ${dFull(a.date)}\nساعت تحویل: ${faDig(a.time)}\nکد تحویل: ${faDig(a.code)}\nلطفاً نماینده هنگام تحویل این کد را اعلام کند. کد فقط یک بار قابل استفاده است.`}
 
 function renderReport(){
   const agg={};S.allocs.filter(active).forEach(a=>{const r=agg[a.heyat]=agg[a.heyat]||{n:0,alloc:0,deliv:0,miss:0};r.n++;r.alloc+=Number(a.qty);if(a.status==='delivered')r.deliv+=Number(a.deliveredQty??a.qty);else if(a.date<todayISO())r.miss++});
   const rows=Object.entries(agg).sort((a,b)=>b[1].alloc-a[1].alloc);
   $('#heyatTable').innerHTML=rows.length?`<table><thead><tr><th>هیئت</th><th>نوبت</th><th>تعهد</th><th>تحویل‌شده</th><th>نیامده</th></tr></thead><tbody>${rows.map(([n,r])=>`<tr><td>${esc(n)}</td><td class="n">${fa(r.n)}</td><td class="n">${fa(r.alloc)}</td><td class="n">${fa(r.deliv)}</td><td class="n">${r.miss?'<span class="chip bad">'+fa(r.miss)+'</span>':'—'}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">هنوز داده‌ای نیست.</div>';
-  $('#logList').innerHTML=S.logs.length?S.logs.slice(0,80).map(l=>`<div><time>${esc(fStamp.format(new Date(l.at)))}</time><span>${esc(l.text)}${l.by?' <span class="muted">· '+esc(nameOf(l.by))+'</span>':''}</span></div>`).join(''):'<div class="empty">رویدادی ثبت نشده.</div>';
+  $('#logList').innerHTML=S.logs.length?S.logs.slice(0,80).map(l=>`<div><time>${esc(fStamp.format(new Date(l.at)))}</time><span>${esc(l.text)}</span></div>`).join(''):'<div class="empty">رویدادی ثبت نشده.</div>';
   $('#expNote').textContent=S.downloads?'فایل با اکسل باز می‌شود.':'دانلود فایل در این نمایش در دسترس نیست.';
 }
 
@@ -567,12 +572,11 @@ fillDateSelect($('#dSel'),S.date,S.date);fillDateSelect($('#fDate'),S.date,S.dat
 const hv=(location.hash||'').slice(1);setView(['deliver','board','plan','report'].includes(hv)?hv:'deliver');
 (async()=>{
   const c=window.claude;
-  if(!c?.use){$('#hdrSub').textContent='بدون اتصال';$('#connBanner').hidden=false;$('#connBanner').textContent='این صفحه باید داخل Claude باز شود تا به دیتابیس مشترک وصل شود.';return}
-  const [db,user,dl]=await Promise.all([c.use('db'),c.use('user'),c.use('downloads')]);
-  S.downloads=dl;S.user=user;
-  if(!db){$('#hdrSub').textContent='بدون اتصال';$('#connBanner').hidden=false;$('#connBanner').textContent='اتصال به دیتابیس برقرار نشد. وارد حساب شوید و صفحه را دوباره باز کنید.';return}
+  if(!c?.use){$('#hdrSub').textContent='بدون اتصال';$('#connBanner').hidden=false;$('#connBanner').textContent='این صفحه باید از داخل حساب Claude شما باز شود تا اطلاعات ذخیره‌شده نمایش داده شود.';return}
+  const [db,dl]=await Promise.all([c.use('db'),c.use('downloads')]);
+  S.downloads=dl;
+  if(!db){$('#hdrSub').textContent='بدون اتصال';$('#connBanner').hidden=false;$('#connBanner').textContent='اطلاعات بارگیری نشد. وارد حساب شوید و صفحه را دوباره باز کنید.';return}
   S.db=db;
-  if(user){try{S.me=await user.id()}catch(e){} const w=user.can?.('data.write');if(w===false){S.canWrite=false;$('#roBanner').hidden=false}}
   $('#fCode').value=newCode();
   const timer=setTimeout(()=>{if(!S.loaded){$('#connBanner').hidden=false;$('#connBanner').textContent='بارگیری اطلاعات طول کشید. اینترنت را بررسی کنید.'}},10000);
   const err=e=>{clearTimeout(timer);$('#connBanner').hidden=false;$('#connBanner').textContent='خطا در خواندن اطلاعات: '+(e?.message||e?.code||'')};
