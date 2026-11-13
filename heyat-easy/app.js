@@ -1,4 +1,4 @@
-/* مضیف الزهراء — نسخه ساده (آزمایشی)
+/* مضیف الزهراء — نسخه ۲ (آزمایشی)
    Same storage design as /heyat/ (private GitHub repo, sha-guarded writes, 15 s polling),
    but writes to a SEPARATE file so trying it never touches the real data. */
 (function(){
@@ -94,8 +94,8 @@ function newCode(){const u=usedCodes();for(let i=0;i<500;i++){const c=String(100
 const S={screen:'home',code:'',qtyAdj:null,day:today(),pick:null,W:null};
 function go(screen,extra){Object.assign(S,{screen},extra||{});draw();window.scrollTo(0,0)}
 function top(back){
-  return `${TEST_MODE?'<div class="test">نسخه آزمایشی — روی اطلاعات اصلی اثری ندارد</div>':''}
-  <div class="top"><div class="logo" aria-hidden="true"></div><h1>مضیف الزهراء<small>${esc(fFull.format(new Date()))}</small></h1>${back?`<button class="back" data-go="home">برگشت ←</button>`:''}</div>`;
+  return `${TEST_MODE?'<div class="test">نسخه ۲ (آزمایشی) — روی اطلاعات اصلی اثری ندارد</div>':''}
+  <div class="top"><div class="logo" aria-hidden="true"></div><h1>مضیف الزهراء<small>نسخه ۲ · ${esc(fFull.format(new Date()))}</small></h1>${back?`<button class="back" data-go="home">برگشت ←</button>`:''}</div>`;
 }
 function syncLine(){return CFG?`<div class="sync ${online?'ok':'bad'}">${online?'● وصل است':'● اینترنت قطع است'}</div>`:''}
 
