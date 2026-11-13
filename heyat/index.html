@@ -132,7 +132,10 @@ h3{font-size:14px;margin:0;font-weight:700}
 .row.cancel{opacity:.55}
 .row .acts{grid-column:1/-1;display:flex;gap:6px;flex-wrap:wrap;padding-right:40px}
 .hours{display:flex;flex-direction:column;gap:6px}
-.hour{display:grid;grid-template-columns:52px minmax(0,1fr) 110px;gap:10px;align-items:center;font-size:13px}
+.hour{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:6px 10px;align-items:center;font-size:13px;padding:8px 0;border-top:1px solid var(--line)}
+.hour:first-child{border-top:0}
+.hour .sum{grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.hour.short .sum b{color:var(--bad)}
 .hour .track{height:10px;background:var(--sunk);border-radius:99px;overflow:hidden;display:flex}
 .hour .track i{height:100%}
 .hour .val{text-align:left;font-variant-numeric:tabular-nums}
@@ -254,7 +257,7 @@ nav.bottom button[aria-current="page"]{color:var(--accent);font-weight:800}
     </div>
     <div class="card">
       <h2>برنامه آماده‌سازی بر اساس ساعت</h2>
-      <p class="muted" style="margin:2px 0 10px;font-size:13px">ستون آخر می‌گوید تا هر ساعت، روی هم چند پرس باید آماده باشد.</p>
+      <p class="muted" style="margin:2px 0 10px;font-size:13px">جلوی هر ساعت نوشته شده تا آن ساعت روی هم چند پرس باید تحویل بدهیم، و با پخت فعلی (منهای سهم نیروها) چقدر کسری داریم.</p>
       <div class="hours" id="hours"></div>
     </div>
   </section>

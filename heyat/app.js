@@ -233,7 +233,11 @@ function renderBoard(st){
   $('#boardList').innerHTML=list.length?list.map(a=>rowHTML(a,true)).join(''):'<div class="empty">برای این روز نوبتی نیست. از «برنامه‌ریزی» برای هیئت‌ها نوبت بسازید.</div>';
   const by={};forDay(S.date).filter(active).forEach(a=>{const h=(a.time||'00:00').slice(0,2);(by[h]=by[h]||{done:0,pend:0,n:0});by[h].n++;if(a.status==='delivered')by[h].done+=Number(a.deliveredQty??a.qty);else by[h].pend+=Number(a.qty)});
   const hs=Object.keys(by).sort();let cum=0;const mx=Math.max(1,...hs.map(h=>by[h].done+by[h].pend));
-  $('#hours').innerHTML=hs.length?hs.map(h=>{const r=by[h];cum+=r.done+r.pend;return `<div class="hour"><span class="num">${faDig(h)}:۰۰</span><div class="track" title="${fa(r.n)} هیئت"><i style="width:${r.done/mx*100}%;background:var(--ok)"></i><i style="width:${r.pend/mx*100}%;background:var(--saffron)"></i></div><span class="val">${fa(r.done+r.pend)} · <b>تا اینجا ${fa(cum)}</b></span></div>`}).join(''):'<div class="empty">نوبتی ثبت نشده.</div>';
+  // food available for heyats = production minus the kitchen staff share
+  const avail=st.prod-st.staffQty;
+  $('#hours').innerHTML=hs.length?hs.map(h=>{const r=by[h];cum+=r.done+r.pend;const gap=cum-avail;
+    const verdict=!st.hasProd?'<span class="chip mute">پخت ثبت نشده</span>':gap>0?`<span class="chip bad">کسری ${fa(gap)} پرس</span>`:`<span class="chip ok">کافی است · اضافه ${fa(-gap)}</span>`;
+    return `<div class="hour ${st.hasProd&&gap>0?'short':''}"><span class="num"><b>${faDig(h)}:۰۰</b></span><div class="track" title="${fa(r.n)} هیئت"><i style="width:${r.done/mx*100}%;background:var(--ok)"></i><i style="width:${r.pend/mx*100}%;background:var(--saffron)"></i></div><span class="val">${fa(r.done+r.pend)} پرس · ${fa(r.n)} هیئت</span><div class="sum"><span>تا ساعت ${faDig(h)}: روی هم <b class="num">${fa(cum)}</b> پرس</span>${verdict}</div></div>`}).join(''):'<div class="empty">نوبتی ثبت نشده.</div>';
 }
 function capHint(){
   const d=$('#fDate').value;if(!d)return;
