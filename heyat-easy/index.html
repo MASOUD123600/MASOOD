@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>مضیف الزهراء — ساده</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="../heyat/icons/logo-192.png">
+<link rel="apple-touch-icon" href="../heyat/icons/apple-touch-icon.png">
+<meta name="theme-color" content="#ffffff">
+<style>
+@font-face{font-family:"Vazirmatn";font-weight:500;font-display:swap;src:url(../heyat/fonts/vazirmatn-500.woff2) format("woff2")}
+@font-face{font-family:"Vazirmatn";font-weight:800;font-display:swap;src:url(../heyat/fonts/vazirmatn-800.woff2) format("woff2")}
+@font-face{font-family:"Aref Ruqaa";font-weight:700;font-display:swap;src:url(../heyat/fonts/aref-ruqaa-700.woff2) format("woff2")}
+/* Layout: one big task per screen. Huge buttons with icon + word, on-screen keypad, full-screen green/red answers.
+   Colors come from the logo: green (go / done), blue (info), red (stop / problem), on white for maximum legibility. */
+:root{
+  --bg:#ffffff; --soft:#f2f5f1; --ink:#111a14; --muted:#56635a; --line:#d5ddd6;
+  --green:#14894a; --green-d:#0d6a38; --blue:#1d4fa3; --red:#c8292b; --orange:#d9820b; --gold:#b8902f;
+  --font:"Vazirmatn",Tahoma,sans-serif; --display:"Aref Ruqaa","Traditional Arabic",serif;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);font-size:20px;line-height:1.5;direction:rtl}
+html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 32px}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:4px solid var(--blue);outline-offset:3px}
+.app{max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+.test{background:#fff4d6;color:#6b4a00;border:2px dashed var(--orange);border-radius:14px;text-align:center;font-size:15px;font-weight:800;padding:6px 10px;margin-top:10px}
+
+/* top bar */
+.top{display:flex;align-items:center;gap:12px;padding-top:10px}
+.logo{width:64px;height:64px;border-radius:50%;background:#fff url(../heyat/icons/logo.webp) center/104% no-repeat;box-shadow:0 0 0 3px var(--gold);flex:none}
+.top h1{margin:0;font-family:var(--display);color:var(--green);font-size:30px;line-height:1.1}
+.top h1 small{display:block;font-family:var(--font);font-size:15px;color:var(--muted);font-weight:500}
+.back{margin-right:auto;border:0;background:var(--soft);border-radius:16px;padding:10px 16px;font-weight:800;font-size:19px;display:flex;align-items:center;gap:6px}
+
+/* home tiles */
+.tiles{display:grid;gap:16px}
+.tile{border:0;border-radius:24px;padding:22px 20px;display:flex;align-items:center;gap:18px;text-align:right;color:#fff;font-weight:800;font-size:28px;min-height:120px;box-shadow:0 4px 0 rgba(0,0,0,.18)}
+.tile:active{transform:translateY(3px);box-shadow:0 1px 0 rgba(0,0,0,.18)}
+.tile svg{width:62px;height:62px;flex:none}
+.tile small{display:block;font-size:16px;font-weight:500;opacity:.92}
+.tile.g{background:var(--green)} .tile.b{background:var(--blue)} .tile.o{background:var(--gold)}
+.mini{display:flex;justify-content:center}
+.mini button{border:0;background:none;color:var(--muted);font-size:16px;text-decoration:underline}
+
+/* headings & cards */
+h2{font-size:26px;margin:0;text-align:center;font-weight:800}
+.hint{color:var(--muted);text-align:center;margin:0;font-size:17px}
+.card{background:var(--soft);border-radius:22px;padding:18px}
+
+/* keypad */
+.display{direction:ltr;text-align:center;font-size:56px;font-weight:800;letter-spacing:14px;background:var(--soft);border:3px solid var(--line);border-radius:22px;padding:8px 0;min-height:96px;font-variant-numeric:tabular-nums}
+.display.qty{letter-spacing:2px}
+.display .ph{color:#b7c0b9}
+.keys{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;direction:ltr}
+.keys button{border:2px solid var(--line);background:#fff;border-radius:20px;font-size:38px;font-weight:800;height:78px;box-shadow:0 3px 0 var(--line)}
+.keys button:active{transform:translateY(2px);box-shadow:none;background:var(--soft)}
+.keys .del{color:var(--red);font-size:30px}
+.keys .ok{background:var(--green);color:#fff;border-color:var(--green-d);box-shadow:0 3px 0 var(--green-d)}
+
+/* big actions */
+.big{border:0;border-radius:22px;width:100%;padding:20px;font-size:28px;font-weight:800;color:#fff;background:var(--green);box-shadow:0 4px 0 var(--green-d);display:flex;align-items:center;justify-content:center;gap:12px}
+.big:active{transform:translateY(3px);box-shadow:none}
+.big.grey{background:var(--soft);color:var(--ink);box-shadow:0 4px 0 var(--line)}
+.big.red{background:var(--red);box-shadow:0 4px 0 #8f1c1d}
+.big.blue{background:var(--blue);box-shadow:0 4px 0 #143a7a}
+.big[disabled]{opacity:.5}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+
+/* answer card (heyat found) */
+.found{border:4px solid var(--green);border-radius:26px;padding:20px;display:flex;flex-direction:column;gap:6px;align-items:center;text-align:center}
+.found .name{font-family:var(--display);font-size:38px;color:var(--green);line-height:1.2}
+.found .qty{font-size:84px;font-weight:800;line-height:1;color:var(--ink)}
+.found .unit{font-size:24px;font-weight:800;margin-top:-4px}
+.found .when{font-size:20px;color:var(--muted)}
+.pill{display:inline-block;border-radius:99px;padding:4px 14px;font-size:17px;font-weight:800}
+.pill.ok{background:#dff3e7;color:var(--green-d)} .pill.warn{background:#fdeccf;color:#8a4f00} .pill.bad{background:#fbe0df;color:var(--red)}
+.adj{display:flex;align-items:center;justify-content:center;gap:14px}
+.adj button{width:64px;height:64px;border-radius:50%;border:2px solid var(--line);background:#fff;font-size:34px;font-weight:800}
+
+/* full-screen result */
+.flash{position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:#fff;text-align:center;padding:24px}
+.flash.ok{background:var(--green)} .flash.bad{background:var(--red)} .flash.warn{background:var(--orange)}
+.flash svg{width:150px;height:150px}
+.flash b{font-size:40px;line-height:1.3}
+.flash span{font-size:22px;max-width:20em}
+
+/* status */
+.bignum{text-align:center;padding:16px;border-radius:26px;background:var(--soft)}
+.bignum b{display:block;font-size:76px;font-weight:800;line-height:1.1;color:var(--orange)}
+.bignum span{font-size:21px;font-weight:800}
+.trio{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;text-align:center}
+.trio div{background:var(--soft);border-radius:18px;padding:10px 4px}
+.trio b{display:block;font-size:26px;font-weight:800}
+.trio span{font-size:15px;color:var(--muted)}
+.bar{height:22px;border-radius:99px;background:var(--line);overflow:hidden;display:flex}
+.bar i{height:100%}
+.list{display:flex;flex-direction:column;gap:10px}
+.item{border:2px solid var(--line);background:#fff;border-radius:20px;padding:14px;display:grid;grid-template-columns:52px 1fr auto;gap:12px;align-items:center;text-align:right;width:100%}
+.item .ic{width:52px;height:52px;border-radius:50%;display:grid;place-items:center;font-size:28px;font-weight:800;color:#fff}
+.item.done .ic{background:var(--green)} .item.wait .ic{background:var(--orange)} .item.late .ic{background:var(--red)}
+.item .nm{font-weight:800;font-size:22px;line-height:1.3}
+.item .sb{font-size:16px;color:var(--muted)}
+.item .q{font-size:28px;font-weight:800}
+.item.done{background:#f3faf5;border-color:#bfe3cc}
+.daynav{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.daynav button{border:0;background:var(--soft);border-radius:16px;width:58px;height:58px;font-size:30px;font-weight:800}
+.daynav b{font-size:21px;text-align:center}
+
+/* choices */
+.choices{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.choices button{border:3px solid var(--line);background:#fff;border-radius:20px;padding:16px 8px;font-size:23px;font-weight:800;min-height:78px}
+.choices button.on{border-color:var(--green);background:#e7f5ec;color:var(--green-d)}
+.choices.three{grid-template-columns:repeat(3,1fr)}
+.text{width:100%;font-size:26px;font-weight:800;padding:16px;border-radius:20px;border:3px solid var(--line);text-align:center}
+.text:focus{border-color:var(--green);outline:none}
+.steps{display:flex;justify-content:center;gap:8px}
+.steps i{width:14px;height:14px;border-radius:50%;background:var(--line)}
+.steps i.on{background:var(--green)}
+.summary{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-size:22px}
+.summary dt{color:var(--muted)} .summary dd{margin:0;font-weight:800}
+.codebig{text-align:center;font-size:20px}
+.codebig b{display:block;font-size:72px;letter-spacing:10px;direction:ltr;color:var(--blue);line-height:1.2}
+.msg{white-space:pre-wrap;font-size:17px;background:#fff;border:2px solid var(--line);border-radius:16px;padding:12px;user-select:all}
+.sync{text-align:center;font-size:15px;font-weight:800;border-radius:12px;padding:6px}
+.sync.ok{color:var(--green-d);background:#e7f5ec} .sync.bad{color:var(--red);background:#fbe0df}
+label.f{display:flex;flex-direction:column;gap:6px;font-weight:800}
+label.f input{font-size:20px;padding:14px;border-radius:16px;border:3px solid var(--line);width:100%}
+@media (prefers-reduced-motion:no-preference){.screen{animation:in .2s ease-out}@keyframes in{from{opacity:.3;transform:translateY(8px)}}}
+</style>
+</head>
+<body>
+<div class="app" id="app"></div>
+<div class="flash" id="flash" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>
