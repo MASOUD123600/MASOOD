@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>مضیف الزهراء</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/logo-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="theme-color" content="#0c0b09">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="مضیف الزهراء">
+<style>
+@font-face{font-family:"Vazirmatn";font-weight:400;font-display:swap;src:url(fonts/vazirmatn-400.woff2) format("woff2")}
+@font-face{font-family:"Vazirmatn";font-weight:500;font-display:swap;src:url(fonts/vazirmatn-500.woff2) format("woff2")}
+@font-face{font-family:"Vazirmatn";font-weight:700;font-display:swap;src:url(fonts/vazirmatn-700.woff2) format("woff2")}
+@font-face{font-family:"Vazirmatn";font-weight:800;font-display:swap;src:url(fonts/vazirmatn-800.woff2) format("woff2")}
+@font-face{font-family:"Aref Ruqaa";font-weight:700;font-display:swap;src:url(fonts/aref-ruqaa-700.woff2) format("woff2")}
+/* Layout: mobile-first RTL app — mozif-arch header with gold calligraphy, one view at a time, fixed bottom tab bar.
+   Deliberately single-theme: mourning black with gold, like a heyat hall at night. */
+:root{
+  --bg:#0c0b09; --surface:#16140f; --sunk:#221f17; --ink:#f2ead7; --muted:#a99e85; --line:#34301f;
+  --accent:#3dbb6c; --accent-ink:#04140a; --saffron:#d9a441; --gold:#d9b25a;
+  --ok:#5fb383; --warn:#e3a94a; --bad:#e2665b;
+  --font:"Vazirmatn",Tahoma,"Segoe UI",sans-serif;
+  --display:"Aref Ruqaa","Amiri","Traditional Arabic",serif;
+  --nav-h:64px; color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+img{max-width:100%}
+html,body{background:var(--bg)}
+html{padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;color:var(--ink);font-family:var(--font);font-size:15px;line-height:1.6;direction:rtl;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  padding-block:0 calc(var(--nav-h) + env(safe-area-inset-bottom,0px) + 24px)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.wrap{max-width:760px;margin:0 auto}
+header.top{position:relative;background:var(--bg);padding-block:12px 0;margin-bottom:16px}
+header.top::after{content:"";display:block;height:12px;margin-top:10px;opacity:.6;
+  background:radial-gradient(circle at 50% 100%,transparent 6px,var(--gold) 6.5px 7.6px,transparent 8.1px) 0 0/18px 12px repeat-x;
+  border-bottom:1px solid var(--gold)}
+.brand{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.brand .id{display:flex;align-items:center;gap:10px;min-width:0}
+.logo{background:#fff url(icons/logo.webp) center/104% no-repeat;border-radius:50%;flex:none;box-shadow:0 0 0 2px var(--gold),0 0 0 5px var(--bg),0 0 0 6px color-mix(in srgb,var(--gold) 50%,transparent)}
+.brand .logo{width:50px;height:50px}
+.welcome-logo{width:112px;height:112px;margin:4px auto 2px}
+.brand h1 .tag{display:block;font-size:12px;color:var(--gold);font-weight:500;margin-top:2px}
+.brand h1{margin:0;line-height:1.1}
+.brand h1 .org{display:block;font-family:var(--display);font-size:30px;font-weight:700;color:var(--accent);letter-spacing:0}
+.brand h1 small{display:block;font-size:12px;font-weight:500;color:var(--muted);margin-top:4px}
+.welcome{font-family:var(--display);font-size:22px;color:var(--gold);text-align:center;margin:0}
+.result .who{font-family:var(--display);color:var(--accent)}
+.datebar{display:flex;align-items:center;gap:6px}
+.datebar select{min-width:0;max-width:200px}
+.iconbtn{border:1px solid var(--line);background:var(--surface);border-radius:10px;width:36px;height:36px;display:grid;place-items:center;cursor:pointer;font-size:16px}
+select,input,textarea{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:9px 11px;width:100%}
+textarea{resize:vertical;min-height:44px}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted);min-width:0}
+label.f > span{font-weight:500}
+.view{display:flex;flex-direction:column;gap:16px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px}
+h2{font-size:16px;margin:0;font-weight:700}
+h3{font-size:14px;margin:0;font-weight:700}
+.muted{color:var(--muted)}
+.num{font-variant-numeric:tabular-nums}
+.btn{border:0;border-radius:11px;padding:11px 16px;font-weight:700;cursor:pointer;background:var(--sunk);color:var(--ink)}
+.btn.primary{background:var(--accent);color:var(--accent-ink)}
+.btn.big{padding:16px 18px;font-size:18px;width:100%}
+.btn.danger{background:color-mix(in srgb,var(--bad) 14%,transparent);color:var(--bad)}
+.btn.sm{padding:6px 10px;font-size:13px;border-radius:9px}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.btn.armed{background:var(--bad);color:#fff}
+.chip{display:inline-flex;align-items:center;gap:4px;border-radius:99px;padding:2px 10px;font-size:12px;font-weight:700;white-space:nowrap}
+.chip.ok{background:color-mix(in srgb,var(--ok) 15%,transparent);color:var(--ok)}
+.chip.warn{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
+.chip.bad{background:color-mix(in srgb,var(--bad) 14%,transparent);color:var(--bad)}
+.chip.mute{background:var(--sunk);color:var(--muted)}
+.banner{border-radius:12px;padding:10px 14px;font-size:13px}
+.banner.warn{background:color-mix(in srgb,var(--warn) 14%,transparent);color:var(--ink);border:1px solid color-mix(in srgb,var(--warn) 40%,transparent)}
+.banner.bad{background:color-mix(in srgb,var(--bad) 12%,transparent);border:1px solid color-mix(in srgb,var(--bad) 40%,transparent)}
+
+/* Delivery */
+.codebox{display:flex;flex-direction:column;gap:10px}
+.codebox input{font-size:34px;text-align:center;letter-spacing:10px;font-weight:800;padding:14px;direction:ltr;font-variant-numeric:tabular-nums;border-width:2px}
+.codebox input:focus{border-color:var(--accent);outline:none}
+.result{display:flex;flex-direction:column;gap:12px}
+.result .who{font-size:22px;font-weight:800;line-height:1.3}
+.bigqty{display:flex;align-items:baseline;gap:8px}
+.bigqty b{font-size:52px;line-height:1;font-weight:800;color:var(--accent)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:14px}
+.kv dt{color:var(--muted)} .kv dd{margin:0;font-weight:500}
+.stepper{display:flex;align-items:center;gap:8px}
+.stepper input{text-align:center;font-weight:700;font-size:18px;max-width:130px}
+.strip{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.strip div{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px;text-align:center}
+.strip b{display:block;font-size:20px;font-weight:800}
+.strip span{font-size:12px;color:var(--muted)}
+
+/* Board */
+.kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+@media (min-width:620px){.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:2px}
+.kpi span{font-size:12px;color:var(--muted);font-weight:500}
+.kpi b{font-size:24px;font-weight:800;font-variant-numeric:tabular-nums}
+.kpi.hero{border-color:color-mix(in srgb,var(--saffron) 55%,var(--line));background:color-mix(in srgb,var(--saffron) 8%,var(--surface))}
+.kpi.hero b{color:var(--saffron)}
+.kpi.neg b{color:var(--bad)}
+.bar{display:flex;height:14px;border-radius:99px;overflow:hidden;background:var(--sunk)}
+.bar i{display:block;height:100%}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-left:5px;vertical-align:-1px}
+.prodrow{display:flex;gap:8px;align-items:end;flex-wrap:wrap}
+.prodrow label{flex:1 1 160px}
+.tabs{display:flex;gap:6px;flex-wrap:wrap}
+.tabs button{border:1px solid var(--line);background:var(--surface);border-radius:99px;padding:5px 12px;font-size:13px;cursor:pointer}
+.tabs button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.list{display:flex;flex-direction:column}
+.row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:11px 2px;border-top:1px solid var(--line)}
+.row:first-child{border-top:0}
+.tick{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:15px;border:2px solid var(--line);color:transparent}
+.row.done .tick{background:var(--ok);border-color:var(--ok);color:#fff}
+.row.late .tick{border-color:var(--bad)}
+.row .name{font-weight:700;overflow-wrap:anywhere}
+.row .sub{font-size:12px;color:var(--muted);display:flex;gap:4px 10px;flex-wrap:wrap}
+.row .q{font-weight:800;font-size:17px;text-align:left}
+.row .q small{display:block;font-size:11px;color:var(--muted);font-weight:500}
+.row.done .name{color:var(--muted)}
+.row.cancel{opacity:.55}
+.row .acts{grid-column:1/-1;display:flex;gap:6px;flex-wrap:wrap;padding-right:40px}
+.hours{display:flex;flex-direction:column;gap:6px}
+.hour{display:grid;grid-template-columns:52px minmax(0,1fr) 110px;gap:10px;align-items:center;font-size:13px}
+.hour .track{height:10px;background:var(--sunk);border-radius:99px;overflow:hidden;display:flex}
+.hour .track i{height:100%}
+.hour .val{text-align:left;font-variant-numeric:tabular-nums}
+
+/* Plan */
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.grid2 .full{grid-column:1/-1}
+@media (max-width:420px){.grid2{grid-template-columns:1fr}}
+.codegen{display:flex;gap:6px}
+.codegen input{direction:ltr;text-align:center;font-weight:800;letter-spacing:4px}
+.cap{font-size:13px;border-radius:10px;padding:8px 12px;background:var(--sunk)}
+.cap.neg{background:color-mix(in srgb,var(--bad) 12%,transparent);color:var(--bad)}
+.share{white-space:pre-wrap;background:var(--sunk);border-radius:10px;padding:12px;font-size:14px;user-select:all}
+.dayhead{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:baseline;padding-top:10px}
+
+/* Report */
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th{color:var(--muted);font-weight:500}
+td.n{font-variant-numeric:tabular-nums}
+.log{display:flex;flex-direction:column;gap:6px;font-size:13px}
+.log div{display:flex;gap:10px}
+.log time{color:var(--muted);flex:none;font-variant-numeric:tabular-nums}
+
+nav.bottom{position:fixed;inset:auto 0 0 0;z-index:6;background:var(--surface);border-top:1px solid var(--line);
+  padding-bottom:env(safe-area-inset-bottom,0px);padding-left:max(8px,env(safe-area-inset-left,0px));padding-right:max(8px,env(safe-area-inset-right,0px))}
+nav.bottom .in{max-width:760px;margin:0 auto;display:grid;grid-template-columns:repeat(4,1fr);height:var(--nav-h)}
+nav.bottom button{border:0;background:none;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:12px;color:var(--muted);font-weight:500}
+nav.bottom button svg{width:22px;height:22px}
+nav.bottom button[aria-current="page"]{color:var(--accent);font-weight:800}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--nav-h) + env(safe-area-inset-bottom,0px) + 14px);z-index:9;background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:12px;font-weight:700;max-width:calc(100% - 32px);text-align:center}
+.empty{color:var(--muted);text-align:center;padding:18px 8px;font-size:14px}
+@media (prefers-reduced-motion:no-preference){.result,.toast{animation:pop .18s ease-out}@keyframes pop{from{transform:translateY(6px);opacity:.4}}}
+.toast{animation:none}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <div class="id">
+        <div class="logo" role="img" aria-label="لوگوی مضیف الزهراء"></div>
+        <h1><span class="org">مضیف الزهراء</span><span class="tag">محفل روضه · سلام الله علیها</span><small id="hdrSub">سامانه تحویل نذری</small><span id="sync" class="chip mute" style="margin-top:4px">در حال اتصال…</span></h1>
+      </div>
+      <div class="datebar">
+        <button class="iconbtn" id="dPrev" aria-label="روز قبل">›</button>
+        <select id="dSel" aria-label="انتخاب روز"></select>
+        <button class="iconbtn" id="dNext" aria-label="روز بعد">‹</button>
+        <button class="iconbtn" id="gear" aria-label="تنظیمات اتصال" title="تنظیمات"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+      </div>
+    </div>
+  </header>
+
+  <div id="connBanner" class="banner bad" hidden style="margin-bottom:12px"></div>
+
+  <!-- ========== DELIVER ========== -->
+  <section class="view" id="v-deliver">
+    <div class="card codebox">
+      <div class="logo welcome-logo" role="img" aria-label="لوگوی مضیف الزهراء"></div>
+      <p class="welcome">خوش آمدید</p>
+      <h2 style="text-align:center">کد تحویل هیئت را وارد کنید</h2>
+      <input id="codeIn" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="----" aria-label="کد تحویل">
+      <div style="display:flex;gap:8px">
+        <button class="btn primary" id="codeGo" style="flex:1">نمایش سهم</button>
+        <button class="btn" id="codeClear">پاک کردن</button>
+      </div>
+    </div>
+    <div id="deliverResult"></div>
+    <div class="strip" id="deliverStrip"></div>
+    <div class="card"><h3 style="margin-bottom:6px">آخرین تحویل‌های این روز</h3><div class="list" id="recentList"></div></div>
+  </section>
+
+  <!-- ========== BOARD ========== -->
+  <section class="view" id="v-board" hidden>
+    <div class="card prodrow">
+      <label class="f"><span>تعداد پخت این روز (پرس)</span><input id="prodIn" inputmode="numeric" placeholder="مثلاً ۱۸۰۰۰"></label>
+      <button class="btn primary" id="prodSave">ثبت پخت</button>
+    </div>
+    <div id="boardAlert"></div>
+    <div class="kpis" id="kpis"></div>
+    <div class="card" style="display:flex;flex-direction:column;gap:10px">
+      <div class="bar" id="bar"></div>
+      <div class="legend" id="legend"></div>
+    </div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+        <h2>هیئت‌های این روز</h2>
+        <div class="tabs" id="filterTabs">
+          <button data-f="all" aria-pressed="true">همه</button>
+          <button data-f="pending" aria-pressed="false">مانده</button>
+          <button data-f="delivered" aria-pressed="false">تحویل‌شده</button>
+        </div>
+      </div>
+      <div class="list" id="boardList"></div>
+    </div>
+    <div class="card">
+      <h2>برنامه آماده‌سازی بر اساس ساعت</h2>
+      <p class="muted" style="margin:2px 0 10px;font-size:13px">ستون آخر می‌گوید تا هر ساعت، روی هم چند پرس باید آماده باشد.</p>
+      <div class="hours" id="hours"></div>
+    </div>
+  </section>
+
+  <!-- ========== PLAN ========== -->
+  <section class="view" id="v-plan" hidden>
+    <form class="card" id="planForm" style="display:flex;flex-direction:column;gap:12px" autocomplete="off">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><h2 id="formTitle">نوبت جدید برای هیئت</h2><button type="button" class="btn sm" id="formReset" hidden>انصراف از ویرایش</button></div>
+      <div class="grid2">
+        <label class="f full"><span>نام هیئت</span><input id="fHeyat" list="heyatList" required placeholder="مثلاً هیئت مظفری"></label>
+        <datalist id="heyatList"></datalist>
+        <label class="f"><span>نماینده</span><input id="fRep" placeholder="نام نماینده"></label>
+        <label class="f"><span>تلفن</span><input id="fPhone" inputmode="tel" placeholder="۰۹۱۲…" style="direction:ltr;text-align:right"></label>
+        <label class="f"><span>روز تحویل</span><select id="fDate"></select></label>
+        <label class="f"><span>ساعت تحویل</span><input id="fTime" type="time" value="19:00" style="direction:ltr"></label>
+        <label class="f"><span>تعداد پرس</span><input id="fQty" inputmode="numeric" required placeholder="۲۵۰"></label>
+        <label class="f"><span>کد تحویل</span><span class="codegen"><input id="fCode" inputmode="numeric" maxlength="6"><button type="button" class="btn sm" id="fRegen" title="کد تازه">کد تازه</button></span></label>
+        <label class="f full"><span>توضیح (اختیاری)</span><input id="fNote" placeholder="مثلاً با ظرف یکبار مصرف"></label>
+      </div>
+      <div class="cap" id="capHint"></div>
+      <button class="btn primary big" id="fSave" type="submit">ثبت نوبت و ساخت کد</button>
+    </form>
+    <div id="shareBox"></div>
+    <div class="card">
+      <h2>نوبت‌های پیش‌رو</h2>
+      <div id="planList"></div>
+    </div>
+  </section>
+
+  <!-- ========== REPORT ========== -->
+  <section class="view" id="v-report" hidden>
+    <div class="card" style="display:flex;flex-direction:column;gap:10px">
+      <h2>خروجی اکسل (CSV)</h2>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" id="expDay">نوبت‌های روز انتخاب‌شده</button>
+        <button class="btn" id="expAll">همه نوبت‌ها</button>
+      </div>
+      <p class="muted" id="expNote" style="margin:0;font-size:12px"></p>
+    </div>
+    <div class="card">
+      <h2 style="margin-bottom:8px">جمع هر هیئت (۶۰ روز اخیر)</h2>
+      <div class="tablewrap" id="heyatTable"></div>
+    </div>
+    <div class="card">
+      <h2 style="margin-bottom:8px">رویدادها</h2>
+      <div class="log" id="logList"></div>
+    </div>
+  </section>
+  <!-- ========== SETTINGS ========== -->
+  <section class="view" id="v-settings" hidden>
+    <form class="card" id="cfgForm" style="display:flex;flex-direction:column;gap:12px" autocomplete="off">
+      <div class="logo welcome-logo"></div>
+      <h2 style="text-align:center">اتصال این دستگاه</h2>
+      <p class="muted" style="margin:0;font-size:13px">اطلاعات نوبت‌ها در یک مخزن خصوصی گیت‌هاب شما ذخیره می‌شود. هر سه ادمین همین اطلاعات را یک بار روی گوشی خودشان وارد می‌کنند و بعد همه به هم وصل‌اند.</p>
+      <label class="f"><span>مخزن داده (نام‌کاربری/نام‌مخزن)</span><input id="cRepo" placeholder="MASOUD123600/mozif-data" style="direction:ltr" required></label>
+      <label class="f"><span>توکن دسترسی گیت‌هاب</span><input id="cToken" type="password" placeholder="github_pat_…" style="direction:ltr" required></label>
+      <label class="f"><span>نام شما (در گزارش‌ها نوشته می‌شود)</span><input id="cName" placeholder="مثلاً حاج علی" required></label>
+      <button class="btn primary big" type="submit" id="cSave">اتصال و ذخیره</button>
+      <div id="cMsg"></div>
+      <button class="btn danger" type="button" id="cForget">قطع اتصال این دستگاه</button>
+    </form>
+  </section>
+</div>
+
+<nav class="bottom"><div class="in">
+  <button data-v="deliver"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>تحویل</button>
+  <button data-v="board"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>داشبورد</button>
+  <button data-v="plan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4M12 13v5M9.5 15.5h5"/></svg>برنامه‌ریزی</button>
+  <button data-v="report"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>گزارش</button>
+</div></nav>
+<div class="toast" id="toast" hidden></div>
+
+<script src="app.js"></script>
+
+</body>
+</html>
