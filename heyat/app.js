@@ -88,11 +88,11 @@ const forDay=d=>allocs().filter(a=>a.date===d).sort((a,b)=>(a.time||'').localeCo
 const PACK=4; // portions per kitchen staff member
 function dayStats(d){
   const list=forDay(d).filter(active);const day=DATA.days?.[d];const prod=Number(day?.production||0);
-  const staff=Number(day?.staff||0),staffQty=staff*Number(day?.staffPack||PACK);
+  const pack=Number(day?.staffPack||PACK),staff=Number(day?.staff||0),staffQty=staff*pack,packsGiven=Number(day?.packsGiven||0),staffGiven=packsGiven*pack;
   // commitment: a delivered heyat counts with what it actually took (may be less than its share)
   let alloc=0,deliv=0,pend=0,nDone=0,nPend=0;
   list.forEach(a=>{if(a.status==='delivered'){const q=Number(a.deliveredQty??a.qty??0);deliv+=q;alloc+=q;nDone++}else{pend+=Number(a.qty||0);alloc+=Number(a.qty||0);nPend++}});
-  return {prod,alloc,deliv,pend,nDone,nPend,n:list.length,staff,staffQty,stock:prod-deliv-staffQty,free:prod-alloc-staffQty,hasProd:!!day&&day.production!=null};
+  return {prod,alloc,deliv,pend,nDone,nPend,n:list.length,staff,staffQty,pack,packsGiven,staffGiven,stock:prod-deliv-staffGiven,free:prod-alloc-staffQty,hasProd:!!day&&day.production!=null};
 }
 function minutesFromNow(a){const t=parseISO(a.date);const[h,m]=(a.time||'00:00').split(':').map(Number);t.setHours(h,m,0,0);return Math.round((Date.now()-t)/60000)}
 function dur(m){const h=Math.floor(m/60),r=m%60;return (h?fa(h)+' ساعت':'')+(h&&r?' و ':'')+(r?fa(r)+' دقیقه':'')}
@@ -211,14 +211,17 @@ function renderBoard(st){
     ['hero','پرس مانده برای تحویل',fa(st.pend)],
     ['','پخت روز',st.hasProd?fa(st.prod):'—'],
     ['','تحویل‌شده',fa(st.deliv)],
-    ['','موجودی آشپزخانه (پخت − تحویل − نیروها)',st.hasProd?fa(st.stock):'—'],
-    [st.free<0?'neg':'','ظرفیت آزاد (پخت − تعهد − نیروها)',st.hasProd?fa(st.free):'—'],
+    ['','موجودی آشپزخانه (پخت − داده‌شده‌ها)',st.hasProd?fa(st.stock):'—'],
+    [st.free<0?'neg':'','ظرفیت آزاد (پخت − تعهد هیئت‌ها − سهم نیروها)',st.hasProd?fa(st.free):'—'],
     ['','هیئت‌ها: تحویل‌گرفته / کل',fa(st.nDone)+' / '+fa(st.n)],
-    ['','غذای نیروهای آشپزخانه',st.staff?fa(st.staff)+' نفر × ۴ = '+fa(st.staffQty):'—'],
     ['','تعهد هیئت‌ها',fa(st.alloc)],
+    ['','سهم مانده نیروها',st.staff?fa(st.staffQty-st.staffGiven):'—'],
   ].map(([c,l,v])=>`<div class="kpi ${c}"><span>${l}</span><b>${v}</b></div>`).join('');
   const base=Math.max(st.prod,st.alloc+st.staffQty,1);
-  const seg=[[st.deliv,'var(--ok)','تحویل‌شده'],[st.pend,'var(--saffron)','در انتظار تحویل'],[st.staffQty,'#6f8fd6','نیروهای آشپزخانه'],[Math.max(st.free,0),'var(--line)','آزاد / بدون نوبت']];
+  const sp=Math.max(st.staffQty,st.staffGiven)||1;
+  $('#staffStrip').innerHTML=`<div><b class="num">${fa(st.staffQty)}</b><span>ظرفیت نیروها (${fa(st.staff)} نفر × ${fa(st.pack)})</span></div><div><b class="num">${fa(st.staffGiven)}</b><span>داده‌شده (${fa(st.packsGiven)} بسته)</span></div><div><b class="num" style="color:${st.staffQty-st.staffGiven<0?'var(--bad)':'inherit'}">${fa(st.staffQty-st.staffGiven)}</b><span>مانده (${fa(Math.max(0,st.staff-st.packsGiven))} بسته)</span></div>`;
+  $('#staffBar').innerHTML=`<i style="width:${st.staffGiven/sp*100}%;background:#6f8fd6"></i>`;
+  const seg=[[st.deliv,'var(--ok)','تحویل‌شده به هیئت‌ها'],[st.pend,'var(--saffron)','در انتظار تحویل'],[st.staffGiven,'#6f8fd6','داده‌شده به نیروها'],[Math.max(st.staffQty-st.staffGiven,0),'color-mix(in srgb,#6f8fd6 40%,transparent)','سهم مانده نیروها'],[Math.max(st.free,0),'var(--line)','آزاد / بدون نوبت']];
   const day=DATA.days?.[S.date];const hist=[];if(day?.base!=null)hist.push('پخت اولیه '+fa(day.base));(day?.changes||[]).forEach(c=>hist.push((c.delta>0?'+':'−')+fa(Math.abs(c.delta))+' ساعت '+fClock.format(new Date(c.at))+(c.by?' ('+c.by+')':'')));
   $('#prodHist').textContent=hist.length?'سابقه پخت: '+hist.join(' · ')+' = '+fa(st.prod):'';
   $('#bar').innerHTML=seg.map(([v,c])=>`<i style="width:${v/base*100}%;background:${c}"></i>`).join('');
@@ -351,8 +354,16 @@ $('#deltaAdd').addEventListener('click',()=>changeProd(1));
 $('#deltaSub').addEventListener('click',()=>armed($('#deltaSub'),'کم شود؟ دوباره بزنید',()=>changeProd(-1)));
 $('#staffSave').addEventListener('click',()=>{
   const n=toInt($('#staffIn').value);if(n<0)return;const day=S.date;
-  act(()=>commit(d=>{d.days=d.days||{};const o=d.days[day]||{date:day};o.staff=n;o.staffPack=PACK;d.days[day]=o;logEntry(d,'staff',`نیروهای آشپزخانه ${dShort(day)}: ${fa(n)} نفر × ۴ = ${fa(n*PACK)} پرس`)},'staff '+day),'نیروها: '+fa(n)+' نفر = '+fa(n*PACK)+' پرس');
+  act(()=>commit(d=>{d.days=d.days||{};const o=d.days[day]||{date:day};o.staff=n;o.staffPack=PACK;d.days[day]=o;logEntry(d,'staff',`ظرفیت نیروهای آشپزخانه ${dShort(day)}: ${fa(n)} نفر × ۴ = ${fa(n*PACK)} پرس`)},'staff '+day),'ظرفیت نیروها: '+fa(n)+' نفر = '+fa(n*PACK)+' پرس');
 });
+function givePacks(sign){
+  const n=toInt($('#packIn').value);if(n<=0)return toast('تعداد بسته را وارد کنید');const day=S.date;
+  act(()=>commit(d=>{d.days=d.days||{};const o=d.days[day]||{date:day};const np=Number(o.packsGiven||0)+sign*n;if(np<0)throw new Error('بیشتر از بسته‌های داده‌شده نمی‌شود کم کرد');
+    o.packsGiven=np;o.staffPack=o.staffPack||PACK;d.days[day]=o;logEntry(d,'staffgive',`${sign>0?'تحویل':'اصلاح'} ${fa(n)} بسته به نیروها (${fa(n*o.staffPack)} پرس) ← جمع ${fa(np)} بسته`)},'staff packs '+day),
+    sign>0?fa(n)+' بسته به نیروها داده شد':'اصلاح شد').then(ok=>{if(ok)$('#packIn').value='1'});
+}
+$('#packGive').addEventListener('click',()=>givePacks(1));
+$('#packUndo').addEventListener('click',()=>armed($('#packUndo'),'کم شود؟ دوباره بزنید',()=>givePacks(-1)));
 document.addEventListener('click',async e=>{
   const st=e.target.closest('[data-step]');
   if(st){const i=$('#dQty');i.value=Math.max(0,toInt(i.value)+Number(st.dataset.step));return}

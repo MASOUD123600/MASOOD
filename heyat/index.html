@@ -219,14 +219,24 @@ nav.bottom button[aria-current="page"]{color:var(--accent);font-weight:800}
         <button class="btn primary" id="deltaAdd">+ اضافه شد</button>
         <button class="btn danger" id="deltaSub">− کم شد</button>
       </div>
-      <div class="prodrow">
-        <label class="f"><span>تعداد نیروهای آشپزخانه (هر نفر ۴ پرس)</span><input id="staffIn" inputmode="numeric" placeholder="مثلاً ۶۰"></label>
-        <button class="btn primary" id="staffSave">ثبت نیروها</button>
-      </div>
       <div id="prodHist" class="muted" style="font-size:13px"></div>
     </div>
     <div id="boardAlert"></div>
     <div class="kpis" id="kpis"></div>
+    <div class="card" style="display:flex;flex-direction:column;gap:12px">
+      <h2>غذای نیروهای آشپزخانه</h2>
+      <div class="prodrow">
+        <label class="f"><span>تعداد نیروها (هر نفر یک بسته ۴ پرسی)</span><input id="staffIn" inputmode="numeric" placeholder="مثلاً ۶۰"></label>
+        <button class="btn primary" id="staffSave">ثبت ظرفیت نیروها</button>
+      </div>
+      <div class="strip" id="staffStrip"></div>
+      <div class="bar" id="staffBar"></div>
+      <div class="prodrow">
+        <label class="f"><span>چند بسته به نیروها داده شد؟</span><input id="packIn" inputmode="numeric" placeholder="مثلاً ۱۰" value="1"></label>
+        <button class="btn primary" id="packGive">+ بسته داده شد</button>
+        <button class="btn danger" id="packUndo">− اصلاح</button>
+      </div>
+    </div>
     <div class="card" style="display:flex;flex-direction:column;gap:10px">
       <div class="bar" id="bar"></div>
       <div class="legend" id="legend"></div>
