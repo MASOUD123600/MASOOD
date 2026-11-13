@@ -1,0 +1,585 @@
+<title>تحویل غذای هیئت‌ها</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;700;800&display=swap">
+<style>
+/* Layout: mobile-first RTL app — sticky header with date, one view at a time, fixed bottom tab bar */
+:root{
+  --bg:#f3f5f2; --surface:#ffffff; --sunk:#e9eee9; --ink:#16201a; --muted:#5a685f; --line:#d9e0da;
+  --accent:#1c6a4b; --accent-ink:#ffffff; --saffron:#b97c0c;
+  --ok:#1b7a48; --warn:#a96d10; --bad:#b3362e;
+  --font:"Vazirmatn",Tahoma,"Segoe UI",sans-serif;
+  --nav-h:64px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0e1411; --surface:#161f1a; --sunk:#1d2822; --ink:#e6ede8; --muted:#97a69d; --line:#2a362f;
+  --accent:#43ad7f; --accent-ink:#06130d; --saffron:#e0a73a;
+  --ok:#4cbc80; --warn:#e2a846; --bad:#e46a5f; color-scheme:dark;}}
+:root[data-theme="dark"]{
+  --bg:#0e1411; --surface:#161f1a; --sunk:#1d2822; --ink:#e6ede8; --muted:#97a69d; --line:#2a362f;
+  --accent:#43ad7f; --accent-ink:#06130d; --saffron:#e0a73a;
+  --ok:#4cbc80; --warn:#e2a846; --bad:#e46a5f; color-scheme:dark;}
+*{box-sizing:border-box}
+html,body{background:var(--bg)}
+body{color:var(--ink);font-family:var(--font);font-size:15px;line-height:1.6;direction:rtl;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  padding-block:0 calc(var(--nav-h) + env(safe-area-inset-bottom,0px) + 24px)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.wrap{max-width:760px;margin:0 auto}
+header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:12px 10px;border-bottom:1px solid var(--line);margin-bottom:16px}
+.brand{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.brand h1{font-size:18px;font-weight:800;margin:0;letter-spacing:-.2px}
+.brand h1 small{display:block;font-size:12px;font-weight:500;color:var(--muted)}
+.datebar{display:flex;align-items:center;gap:6px}
+.datebar select{min-width:0;max-width:200px}
+.iconbtn{border:1px solid var(--line);background:var(--surface);border-radius:10px;width:36px;height:36px;display:grid;place-items:center;cursor:pointer;font-size:16px}
+select,input,textarea{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:9px 11px;width:100%}
+textarea{resize:vertical;min-height:44px}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted);min-width:0}
+label.f > span{font-weight:500}
+.view{display:flex;flex-direction:column;gap:16px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px}
+h2{font-size:16px;margin:0;font-weight:700}
+h3{font-size:14px;margin:0;font-weight:700}
+.muted{color:var(--muted)}
+.num{font-variant-numeric:tabular-nums}
+.btn{border:0;border-radius:11px;padding:11px 16px;font-weight:700;cursor:pointer;background:var(--sunk);color:var(--ink)}
+.btn.primary{background:var(--accent);color:var(--accent-ink)}
+.btn.big{padding:16px 18px;font-size:18px;width:100%}
+.btn.danger{background:color-mix(in srgb,var(--bad) 14%,transparent);color:var(--bad)}
+.btn.sm{padding:6px 10px;font-size:13px;border-radius:9px}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.btn.armed{background:var(--bad);color:#fff}
+.chip{display:inline-flex;align-items:center;gap:4px;border-radius:99px;padding:2px 10px;font-size:12px;font-weight:700;white-space:nowrap}
+.chip.ok{background:color-mix(in srgb,var(--ok) 15%,transparent);color:var(--ok)}
+.chip.warn{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
+.chip.bad{background:color-mix(in srgb,var(--bad) 14%,transparent);color:var(--bad)}
+.chip.mute{background:var(--sunk);color:var(--muted)}
+.banner{border-radius:12px;padding:10px 14px;font-size:13px}
+.banner.warn{background:color-mix(in srgb,var(--warn) 14%,transparent);color:var(--ink);border:1px solid color-mix(in srgb,var(--warn) 40%,transparent)}
+.banner.bad{background:color-mix(in srgb,var(--bad) 12%,transparent);border:1px solid color-mix(in srgb,var(--bad) 40%,transparent)}
+
+/* Delivery */
+.codebox{display:flex;flex-direction:column;gap:10px}
+.codebox input{font-size:34px;text-align:center;letter-spacing:10px;font-weight:800;padding:14px;direction:ltr;font-variant-numeric:tabular-nums;border-width:2px}
+.codebox input:focus{border-color:var(--accent);outline:none}
+.result{display:flex;flex-direction:column;gap:12px}
+.result .who{font-size:22px;font-weight:800;line-height:1.3}
+.bigqty{display:flex;align-items:baseline;gap:8px}
+.bigqty b{font-size:52px;line-height:1;font-weight:800;color:var(--accent)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:14px}
+.kv dt{color:var(--muted)} .kv dd{margin:0;font-weight:500}
+.stepper{display:flex;align-items:center;gap:8px}
+.stepper input{text-align:center;font-weight:700;font-size:18px;max-width:130px}
+.strip{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.strip div{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px;text-align:center}
+.strip b{display:block;font-size:20px;font-weight:800}
+.strip span{font-size:12px;color:var(--muted)}
+
+/* Board */
+.kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+@media (min-width:620px){.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:2px}
+.kpi span{font-size:12px;color:var(--muted);font-weight:500}
+.kpi b{font-size:24px;font-weight:800;font-variant-numeric:tabular-nums}
+.kpi.hero{border-color:color-mix(in srgb,var(--saffron) 55%,var(--line));background:color-mix(in srgb,var(--saffron) 8%,var(--surface))}
+.kpi.hero b{color:var(--saffron)}
+.kpi.neg b{color:var(--bad)}
+.bar{display:flex;height:14px;border-radius:99px;overflow:hidden;background:var(--sunk)}
+.bar i{display:block;height:100%}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-left:5px;vertical-align:-1px}
+.prodrow{display:flex;gap:8px;align-items:end;flex-wrap:wrap}
+.prodrow label{flex:1 1 160px}
+.tabs{display:flex;gap:6px;flex-wrap:wrap}
+.tabs button{border:1px solid var(--line);background:var(--surface);border-radius:99px;padding:5px 12px;font-size:13px;cursor:pointer}
+.tabs button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.list{display:flex;flex-direction:column}
+.row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:11px 2px;border-top:1px solid var(--line)}
+.row:first-child{border-top:0}
+.tick{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:15px;border:2px solid var(--line);color:transparent}
+.row.done .tick{background:var(--ok);border-color:var(--ok);color:#fff}
+.row.late .tick{border-color:var(--bad)}
+.row .name{font-weight:700;overflow-wrap:anywhere}
+.row .sub{font-size:12px;color:var(--muted);display:flex;gap:4px 10px;flex-wrap:wrap}
+.row .q{font-weight:800;font-size:17px;text-align:left}
+.row .q small{display:block;font-size:11px;color:var(--muted);font-weight:500}
+.row.done .name{color:var(--muted)}
+.row.cancel{opacity:.55}
+.row .acts{grid-column:1/-1;display:flex;gap:6px;flex-wrap:wrap;padding-right:40px}
+.hours{display:flex;flex-direction:column;gap:6px}
+.hour{display:grid;grid-template-columns:52px minmax(0,1fr) 110px;gap:10px;align-items:center;font-size:13px}
+.hour .track{height:10px;background:var(--sunk);border-radius:99px;overflow:hidden;display:flex}
+.hour .track i{height:100%}
+.hour .val{text-align:left;font-variant-numeric:tabular-nums}
+
+/* Plan */
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.grid2 .full{grid-column:1/-1}
+@media (max-width:420px){.grid2{grid-template-columns:1fr}}
+.codegen{display:flex;gap:6px}
+.codegen input{direction:ltr;text-align:center;font-weight:800;letter-spacing:4px}
+.cap{font-size:13px;border-radius:10px;padding:8px 12px;background:var(--sunk)}
+.cap.neg{background:color-mix(in srgb,var(--bad) 12%,transparent);color:var(--bad)}
+.share{white-space:pre-wrap;background:var(--sunk);border-radius:10px;padding:12px;font-size:14px;user-select:all}
+.dayhead{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:baseline;padding-top:10px}
+
+/* Report */
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th{color:var(--muted);font-weight:500}
+td.n{font-variant-numeric:tabular-nums}
+.log{display:flex;flex-direction:column;gap:6px;font-size:13px}
+.log div{display:flex;gap:10px}
+.log time{color:var(--muted);flex:none;font-variant-numeric:tabular-nums}
+
+nav.bottom{position:fixed;inset:auto 0 0 0;z-index:6;background:var(--surface);border-top:1px solid var(--line);
+  padding-bottom:env(safe-area-inset-bottom,0px);padding-left:max(8px,env(safe-area-inset-left,0px));padding-right:max(8px,env(safe-area-inset-right,0px))}
+nav.bottom .in{max-width:760px;margin:0 auto;display:grid;grid-template-columns:repeat(4,1fr);height:var(--nav-h)}
+nav.bottom button{border:0;background:none;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:12px;color:var(--muted);font-weight:500}
+nav.bottom button svg{width:22px;height:22px}
+nav.bottom button[aria-current="page"]{color:var(--accent);font-weight:800}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--nav-h) + env(safe-area-inset-bottom,0px) + 14px);z-index:9;background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:12px;font-weight:700;max-width:calc(100% - 32px);text-align:center}
+.empty{color:var(--muted);text-align:center;padding:18px 8px;font-size:14px}
+@media (prefers-reduced-motion:no-preference){.result,.toast{animation:pop .18s ease-out}@keyframes pop{from{transform:translateY(6px);opacity:.4}}}
+.toast{animation:none}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <h1>تحویل غذای هیئت‌ها<small id="hdrSub">در حال اتصال…</small></h1>
+      <div class="datebar">
+        <button class="iconbtn" id="dPrev" aria-label="روز قبل">›</button>
+        <select id="dSel" aria-label="انتخاب روز"></select>
+        <button class="iconbtn" id="dNext" aria-label="روز بعد">‹</button>
+      </div>
+    </div>
+  </header>
+
+  <div id="roBanner" class="banner warn" hidden style="margin-bottom:12px">شما فقط اجازه دیدن دارید. برای ثبت تحویل، مالک صفحه باید به شما دسترسی ویرایش بدهد.</div>
+  <div id="connBanner" class="banner bad" hidden style="margin-bottom:12px"></div>
+
+  <!-- ========== DELIVER ========== -->
+  <section class="view" id="v-deliver">
+    <div class="card codebox">
+      <h2>کد تحویل نماینده</h2>
+      <input id="codeIn" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="----" aria-label="کد تحویل">
+      <div style="display:flex;gap:8px">
+        <button class="btn primary" id="codeGo" style="flex:1">نمایش سهم</button>
+        <button class="btn" id="codeClear">پاک کردن</button>
+      </div>
+    </div>
+    <div id="deliverResult"></div>
+    <div class="strip" id="deliverStrip"></div>
+    <div class="card"><h3 style="margin-bottom:6px">آخرین تحویل‌های این روز</h3><div class="list" id="recentList"></div></div>
+  </section>
+
+  <!-- ========== BOARD ========== -->
+  <section class="view" id="v-board" hidden>
+    <div class="card prodrow">
+      <label class="f"><span>تعداد پخت این روز (پرس)</span><input id="prodIn" inputmode="numeric" placeholder="مثلاً ۱۸۰۰۰"></label>
+      <button class="btn primary" id="prodSave">ثبت پخت</button>
+    </div>
+    <div id="boardAlert"></div>
+    <div class="kpis" id="kpis"></div>
+    <div class="card" style="display:flex;flex-direction:column;gap:10px">
+      <div class="bar" id="bar"></div>
+      <div class="legend" id="legend"></div>
+    </div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+        <h2>هیئت‌های این روز</h2>
+        <div class="tabs" id="filterTabs">
+          <button data-f="all" aria-pressed="true">همه</button>
+          <button data-f="pending" aria-pressed="false">مانده</button>
+          <button data-f="delivered" aria-pressed="false">تحویل‌شده</button>
+        </div>
+      </div>
+      <div class="list" id="boardList"></div>
+    </div>
+    <div class="card">
+      <h2>برنامه آماده‌سازی بر اساس ساعت</h2>
+      <p class="muted" style="margin:2px 0 10px;font-size:13px">ستون آخر می‌گوید تا هر ساعت، روی هم چند پرس باید آماده باشد.</p>
+      <div class="hours" id="hours"></div>
+    </div>
+  </section>
+
+  <!-- ========== PLAN ========== -->
+  <section class="view" id="v-plan" hidden>
+    <form class="card" id="planForm" style="display:flex;flex-direction:column;gap:12px" autocomplete="off">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><h2 id="formTitle">نوبت جدید برای هیئت</h2><button type="button" class="btn sm" id="formReset" hidden>انصراف از ویرایش</button></div>
+      <div class="grid2">
+        <label class="f full"><span>نام هیئت</span><input id="fHeyat" list="heyatList" required placeholder="مثلاً هیئت مظفری"></label>
+        <datalist id="heyatList"></datalist>
+        <label class="f"><span>نماینده</span><input id="fRep" placeholder="نام نماینده"></label>
+        <label class="f"><span>تلفن</span><input id="fPhone" inputmode="tel" placeholder="۰۹۱۲…" style="direction:ltr;text-align:right"></label>
+        <label class="f"><span>روز تحویل</span><select id="fDate"></select></label>
+        <label class="f"><span>ساعت تحویل</span><input id="fTime" type="time" value="19:00" style="direction:ltr"></label>
+        <label class="f"><span>تعداد پرس</span><input id="fQty" inputmode="numeric" required placeholder="۲۵۰"></label>
+        <label class="f"><span>کد تحویل</span><span class="codegen"><input id="fCode" inputmode="numeric" maxlength="6"><button type="button" class="btn sm" id="fRegen" title="کد تازه">کد تازه</button></span></label>
+        <label class="f full"><span>توضیح (اختیاری)</span><input id="fNote" placeholder="مثلاً با ظرف یکبار مصرف"></label>
+      </div>
+      <div class="cap" id="capHint"></div>
+      <button class="btn primary big" id="fSave" type="submit">ثبت نوبت و ساخت کد</button>
+    </form>
+    <div id="shareBox"></div>
+    <div class="card">
+      <h2>نوبت‌های پیش‌رو</h2>
+      <div id="planList"></div>
+    </div>
+  </section>
+
+  <!-- ========== REPORT ========== -->
+  <section class="view" id="v-report" hidden>
+    <div class="card" style="display:flex;flex-direction:column;gap:10px">
+      <h2>خروجی اکسل (CSV)</h2>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" id="expDay">نوبت‌های روز انتخاب‌شده</button>
+        <button class="btn" id="expAll">همه نوبت‌ها</button>
+      </div>
+      <p class="muted" id="expNote" style="margin:0;font-size:12px"></p>
+    </div>
+    <div class="card">
+      <h2 style="margin-bottom:8px">جمع هر هیئت (۶۰ روز اخیر)</h2>
+      <div class="tablewrap" id="heyatTable"></div>
+    </div>
+    <div class="card">
+      <h2 style="margin-bottom:8px">رویدادها</h2>
+      <div class="log" id="logList"></div>
+    </div>
+  </section>
+</div>
+
+<nav class="bottom"><div class="in">
+  <button data-v="deliver"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>تحویل</button>
+  <button data-v="board"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>داشبورد</button>
+  <button data-v="plan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4M12 13v5M9.5 15.5h5"/></svg>برنامه‌ریزی</button>
+  <button data-v="report"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>گزارش</button>
+</div></nav>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(function(){
+const $=s=>document.querySelector(s);
+const pad=n=>String(n).padStart(2,'0');
+const iso=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+const parseISO=s=>{const[y,m,d]=s.split('-').map(Number);return new Date(y,m-1,d)};
+const addDays=(s,n)=>{const d=parseISO(s);d.setDate(d.getDate()+n);return iso(d)};
+const todayISO=()=>iso(new Date());
+const fLong=new Intl.DateTimeFormat('fa-IR',{weekday:'long',day:'numeric',month:'long'});
+const fFull=new Intl.DateTimeFormat('fa-IR',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+const fShort=new Intl.DateTimeFormat('fa-IR',{day:'numeric',month:'long'});
+const fClock=new Intl.DateTimeFormat('fa-IR',{hour:'2-digit',minute:'2-digit'});
+const fStamp=new Intl.DateTimeFormat('fa-IR',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+const dLong=s=>fLong.format(parseISO(s)), dFull=s=>fFull.format(parseISO(s)), dShort=s=>fShort.format(parseISO(s));
+const fa=n=>Number(n||0).toLocaleString('fa-IR');
+const faDig=s=>String(s??'').replace(/\d/g,d=>'۰۱۲۳۴۵۶۷۸۹'[d]);
+const en=s=>String(s??'').replace(/[۰-۹]/g,d=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(d)).replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d));
+const toInt=s=>{const v=parseInt(en(s).replace(/[^\d-]/g,''),10);return isNaN(v)?0:v};
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+const S={date:todayISO(),view:'deliver',filter:'all',allocs:[],days:{},logs:[],loaded:false,db:null,user:null,me:'',names:{},canWrite:true,lookup:'',editingId:null,lastShare:null,downloads:null};
+
+/* ---------- helpers on data ---------- */
+const active=a=>a.status!=='cancelled';
+const forDay=d=>S.allocs.filter(a=>a.date===d).sort((a,b)=>(a.time||'').localeCompare(b.time||'')||a.heyat.localeCompare(b.heyat,'fa'));
+function dayStats(d){
+  const list=forDay(d).filter(active);
+  const prod=Number(S.days[d]?.production||0);
+  let alloc=0,deliv=0,pend=0,nDone=0,nPend=0;
+  list.forEach(a=>{alloc+=Number(a.qty||0);if(a.status==='delivered'){deliv+=Number(a.deliveredQty??a.qty??0);nDone++}else{pend+=Number(a.qty||0);nPend++}});
+  return {prod,alloc,deliv,pend,nDone,nPend,n:list.length,stock:prod-deliv,free:prod-alloc,hasProd:!!S.days[d]};
+}
+function minutesFromNow(a){const t=parseISO(a.date);const[h,m]=(a.time||'00:00').split(':').map(Number);t.setHours(h,m,0,0);return Math.round((Date.now()-t)/60000)}
+function timing(a){
+  if(a.date!==todayISO()) return {cls:'bad',text:'این نوبت مال '+dLong(a.date)+' است، نه امروز'};
+  const m=minutesFromNow(a);
+  if(m<-60) return {cls:'warn',text:'زودتر از موعد: '+dur(-m)};
+  if(m>90) return {cls:'warn',text:'با تأخیر: '+dur(m)};
+  return {cls:'ok',text:'در بازه زمانی نوبت'};
+}
+function dur(m){const h=Math.floor(m/60),r=m%60;return (h?fa(h)+' ساعت':'')+(h&&r?' و ':'')+(r?fa(r)+' دقیقه':'')}
+function usedCodes(exceptId){return new Set(S.allocs.filter(a=>a.status==='pending'&&a.id!==exceptId).map(a=>a.code))}
+function newCode(exceptId){const u=usedCodes(exceptId);for(let i=0;i<500;i++){const c=String(1000+Math.floor(Math.random()*9000));if(!u.has(c))return c}return String(Date.now()).slice(-6)}
+function nameOf(id){return id?(S.names[id]||'یکی از همکاران'):''}
+async function resolveNames(){
+  if(!S.user?.profiles)return;
+  const ids=[...new Set(S.allocs.map(a=>a.deliveredBy).concat(S.logs.map(l=>l.by)).filter(Boolean))].filter(i=>!(i in S.names));
+  if(!ids.length)return;
+  try{const ps=await S.user.profiles(ids);let ch=false;ids.forEach(i=>{const n=ps?.[i]?.name||'';if(n){S.names[i]=n;ch=true}else S.names[i]='یکی از همکاران'});if(ch)render()}catch(e){}
+}
+
+/* ---------- UI utils ---------- */
+let toastT;
+function toast(msg){const t=$('#toast');t.textContent=msg;t.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>t.hidden=true,2600)}
+function armed(btn,label,fn){ // two-tap confirm inside the page
+  if(btn.dataset.armed){delete btn.dataset.armed;btn.classList.remove('armed');fn();return}
+  const old=btn.textContent;btn.dataset.armed='1';btn.classList.add('armed');btn.textContent=label;
+  setTimeout(()=>{if(btn.dataset.armed){delete btn.dataset.armed;btn.classList.remove('armed');btn.textContent=old}},3500);
+}
+function needDb(){if(!S.db){toast('اتصال به دیتابیس برقرار نیست');return false}if(!S.canWrite){toast('اجازه ثبت ندارید');return false}return true}
+async function log(type,text,allocId){try{await S.db.collection('log').add({at:new Date().toISOString(),type,text,allocId:allocId||'',by:S.me||''})}catch(e){}}
+
+/* ---------- date selects ---------- */
+function fillDateSelect(sel,center,value){
+  const t=todayISO();let h='';
+  for(let i=-30;i<=75;i++){const d=addDays(t,i);h+=`<option value="${d}">${esc(dLong(d))}${d===t?' (امروز)':''}</option>`}
+  if(value&&(value<addDays(t,-30)||value>addDays(t,75))) h=`<option value="${value}">${esc(dLong(value))}</option>`+h;
+  sel.innerHTML=h;sel.value=value||center;
+}
+function setDate(d){S.date=d;$('#dSel').value=d;$('#prodIn').value=S.days[d]?.production?fa(S.days[d].production).replace(/٬/g,''):'';render()}
+
+/* ---------- views ---------- */
+function setView(v){
+  S.view=v;['deliver','board','plan','report'].forEach(k=>$('#v-'+k).hidden=k!==v);
+  document.querySelectorAll('nav.bottom button').forEach(b=>b.setAttribute('aria-current',b.dataset.v===v?'page':'false'));
+  if(location.hash!=='#'+v)try{history.replaceState(null,'','#'+v)}catch(e){location.hash=v}
+  render();if(v==='deliver')setTimeout(()=>$('#codeIn').focus(),50);
+}
+
+function render(){
+  const st=dayStats(S.date);
+  $('#hdrSub').textContent=S.db?(dFull(S.date)+(S.date===todayISO()?' · امروز':'')):($('#hdrSub').textContent);
+  if(S.view==='deliver')renderDeliver(st);
+  if(S.view==='board')renderBoard(st);
+  if(S.view==='plan')renderPlan();
+  if(S.view==='report')renderReport();
+}
+
+function rowHTML(a,withActs){
+  const done=a.status==='delivered',cancel=a.status==='cancelled';
+  const late=!done&&!cancel&&a.date===todayISO()&&minutesFromNow(a)>30;
+  const q=done?Number(a.deliveredQty??a.qty):Number(a.qty);
+  const sub=[`<span>ساعت ${faDig(a.time||'—')}</span>`,`<span>کد ${faDig(a.code)}</span>`];
+  if(a.rep)sub.push(`<span>${esc(a.rep)}</span>`);
+  if(done)sub.push(`<span class="chip ok">تحویل ${esc(fClock.format(new Date(a.deliveredAt)))}${a.deliveredBy?' · '+esc(nameOf(a.deliveredBy)):''}</span>`);
+  if(done&&Number(a.deliveredQty)!==Number(a.qty))sub.push(`<span class="chip warn">کمتر از سهم: ${fa(a.qty)}</span>`);
+  if(late)sub.push(`<span class="chip bad">دیر کرده</span>`);
+  if(cancel)sub.push(`<span class="chip mute">لغو شده</span>`);
+  if(a.note)sub.push(`<span>${esc(a.note)}</span>`);
+  let acts='';
+  if(withActs&&S.canWrite){
+    if(a.status==='pending')acts+=`<button class="btn sm primary" data-act="quick" data-id="${a.id}">تحویل ${fa(a.qty)} پرس</button><button class="btn sm" data-act="edit" data-id="${a.id}">ویرایش</button><button class="btn sm danger" data-act="cancel" data-id="${a.id}">لغو نوبت</button>`;
+    if(done)acts+=`<button class="btn sm danger" data-act="undo" data-id="${a.id}">برگرداندن تحویل</button>`;
+    if(cancel)acts+=`<button class="btn sm" data-act="restore" data-id="${a.id}">برگرداندن نوبت</button>`;
+  }
+  return `<div class="row ${done?'done':''} ${cancel?'cancel':''} ${late?'late':''}"><div class="tick" aria-label="${done?'تحویل شده':'تحویل نشده'}">✓</div><div style="min-width:0"><div class="name">${esc(a.heyat)}</div><div class="sub">${sub.join('')}</div></div><div class="q num">${fa(q)}<small>پرس</small></div>${acts?`<div class="acts">${acts}</div>`:''}</div>`;
+}
+
+function renderDeliver(st){
+  $('#deliverStrip').innerHTML=`<div><b class="num">${fa(st.pend)}</b><span>پرس مانده برای تحویل</span></div><div><b class="num">${fa(st.nPend)}</b><span>هیئت مانده</span></div><div><b class="num">${fa(st.stock)}</b><span>موجودی آشپزخانه</span></div>`;
+  const recent=forDay(S.date).filter(a=>a.status==='delivered').sort((a,b)=>(b.deliveredAt||'').localeCompare(a.deliveredAt||'')).slice(0,6);
+  $('#recentList').innerHTML=recent.length?recent.map(a=>rowHTML(a,false)).join(''):'<div class="empty">هنوز تحویلی در این روز ثبت نشده.</div>';
+  const box=$('#deliverResult');
+  if(!S.lookup){box.innerHTML='';return}
+  const code=S.lookup;
+  const m=S.allocs.filter(a=>a.code===code&&active(a));
+  if(!m.length){box.innerHTML=`<div class="card result"><div class="banner bad"><b>کد ${faDig(code)} پیدا نشد.</b><br>کد را دوباره از نماینده بپرسید یا در «برنامه‌ریزی» جستجو کنید.</div></div>`;return}
+  const t=todayISO();
+  m.sort((a,b)=>(a.status==='pending'?0:1)-(b.status==='pending'?0:1)||Math.abs(parseISO(a.date)-parseISO(t))-Math.abs(parseISO(b.date)-parseISO(t)));
+  const a=m[0];
+  if(a.status==='delivered'){
+    box.innerHTML=`<div class="card result" style="border-color:var(--bad)"><div class="banner bad"><b>این سهم قبلاً تحویل داده شده است.</b></div><div class="who">${esc(a.heyat)}</div>
+    <dl class="kv"><dt>تحویل شده</dt><dd class="num">${fa(a.deliveredQty??a.qty)} پرس</dd><dt>زمان تحویل</dt><dd>${esc(fStamp.format(new Date(a.deliveredAt)))}</dd><dt>تحویل‌دهنده</dt><dd>${esc(nameOf(a.deliveredBy)||'—')}</dd><dt>نوبت</dt><dd>${esc(dLong(a.date))} · ساعت ${faDig(a.time)}</dd></dl>
+    ${S.canWrite?`<button class="btn danger" data-act="undo" data-id="${a.id}">برگرداندن تحویل (اگر اشتباه ثبت شده)</button>`:''}</div>`;return;
+  }
+  const tm=timing(a);
+  const cur=box.querySelector('#dQty')?.dataset.id===a.id?box.querySelector('#dQty').value:fa(a.qty).replace(/٬/g,'');
+  box.innerHTML=`<div class="card result">
+    <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center"><span class="chip ${tm.cls}">${esc(tm.text)}</span><span class="muted num">کد ${faDig(a.code)}</span></div>
+    <div class="who">${esc(a.heyat)}</div>
+    <div class="bigqty"><b class="num">${fa(a.qty)}</b><span>پرس</span></div>
+    <dl class="kv"><dt>نوبت</dt><dd>${esc(dLong(a.date))} · ساعت ${faDig(a.time)}</dd>${a.rep?`<dt>نماینده</dt><dd>${esc(a.rep)}</dd>`:''}${a.phone?`<dt>تلفن</dt><dd style="direction:ltr;text-align:right">${esc(faDig(a.phone))}</dd>`:''}${a.note?`<dt>توضیح</dt><dd>${esc(a.note)}</dd>`:''}</dl>
+    ${S.canWrite?`<div class="stepper"><span class="muted" style="font-size:13px">تعداد تحویلی:</span><button class="iconbtn" data-step="-10">−</button><input id="dQty" data-id="${a.id}" inputmode="numeric" value="${esc(cur)}"><button class="iconbtn" data-step="10">+</button></div>
+    <button class="btn primary big" data-act="deliver" data-id="${a.id}">${tm.cls==='bad'?'تحویل خارج از نوبت ✓':'تحویل داده شد ✓'}</button>`:''}
+  </div>`;
+}
+
+function renderBoard(st){
+  const alert=[];
+  if(!st.hasProd)alert.push(`<div class="banner warn">تعداد پخت ${esc(dLong(S.date))} هنوز ثبت نشده. بالای همین صفحه واردش کنید.</div>`);
+  else if(st.free<0)alert.push(`<div class="banner bad"><b>کسری ${fa(-st.free)} پرس:</b> نوبت‌های داده‌شده از پخت این روز بیشتر است. یا پخت را بالا ببرید یا سهم بعضی هیئت‌ها را کم کنید.</div>`);
+  $('#boardAlert').innerHTML=alert.join('');
+  $('#kpis').innerHTML=[
+    ['hero','پرس مانده برای تحویل',fa(st.pend)],
+    ['','پخت روز',st.hasProd?fa(st.prod):'—'],
+    ['','تحویل‌شده',fa(st.deliv)],
+    ['','موجودی آشپزخانه (پخت − تحویل)',st.hasProd?fa(st.stock):'—'],
+    [st.free<0?'neg':'','ظرفیت آزاد (پخت − تعهد)',st.hasProd?fa(st.free):'—'],
+    ['','هیئت‌ها: تحویل‌گرفته / کل',fa(st.nDone)+' / '+fa(st.n)],
+  ].map(([c,l,v])=>`<div class="kpi ${c}"><span>${l}</span><b>${v}</b></div>`).join('');
+  const base=Math.max(st.prod,st.alloc,1);
+  const seg=[[st.deliv,'var(--ok)','تحویل‌شده'],[st.pend,'var(--saffron)','در انتظار تحویل'],[Math.max(st.free,0),'var(--line)','آزاد / بدون نوبت']];
+  $('#bar').innerHTML=seg.map(([v,c])=>`<i style="width:${v/base*100}%;background:${c}"></i>`).join('');
+  $('#legend').innerHTML=seg.map(([v,c,l])=>`<span><i style="background:${c}"></i>${l}: <b class="num">${fa(v)}</b></span>`).join('');
+  document.querySelectorAll('#filterTabs button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.f===S.filter));
+  let list=forDay(S.date);
+  if(S.filter==='pending')list=list.filter(a=>a.status==='pending');
+  if(S.filter==='delivered')list=list.filter(a=>a.status==='delivered');
+  $('#boardList').innerHTML=list.length?list.map(a=>rowHTML(a,true)).join(''):`<div class="empty">${S.loaded?'برای این روز نوبتی نیست. از «برنامه‌ریزی» برای هیئت‌ها نوبت بسازید.':'در حال بارگیری نوبت‌ها…'}</div>`;
+  // hours
+  const by={};forDay(S.date).filter(active).forEach(a=>{const h=(a.time||'00:00').slice(0,2);(by[h]=by[h]||{done:0,pend:0,n:0});by[h].n++;if(a.status==='delivered')by[h].done+=Number(a.deliveredQty??a.qty);else by[h].pend+=Number(a.qty)});
+  const hs=Object.keys(by).sort();let cum=0;const mx=Math.max(1,...hs.map(h=>by[h].done+by[h].pend));
+  $('#hours').innerHTML=hs.length?hs.map(h=>{const r=by[h];cum+=r.done+r.pend;return `<div class="hour"><span class="num">${faDig(h)}:۰۰</span><div class="track" title="${fa(r.n)} هیئت"><i style="width:${r.done/mx*100}%;background:var(--ok)"></i><i style="width:${r.pend/mx*100}%;background:var(--saffron)"></i></div><span class="val">${fa(r.done+r.pend)} · <b>تا اینجا ${fa(cum)}</b></span></div>`}).join(''):'<div class="empty">نوبتی ثبت نشده.</div>';
+}
+
+function capHint(){
+  const d=$('#fDate').value;if(!d)return;
+  const st=dayStats(d);const ex=S.editingId?S.allocs.find(a=>a.id===S.editingId):null;
+  const used=st.alloc-(ex&&ex.date===d&&active(ex)?Number(ex.qty):0);const q=toInt($('#fQty').value);
+  const el=$('#capHint');
+  if(!st.hasProd){el.className='cap';el.innerHTML=`پخت ${esc(dLong(d))} هنوز ثبت نشده · تا الان ${fa(used)} پرس به ${fa(st.n)} هیئت تعهد شده.`;return}
+  const after=st.prod-used-q;el.className='cap'+(after<0?' neg':'');
+  el.innerHTML=`پخت ${esc(dShort(d))}: <b class="num">${fa(st.prod)}</b> · تعهد شده: <b class="num">${fa(used)}</b> · ${after<0?'بعد از این نوبت <b>کسری '+fa(-after)+'</b> پرس':'بعد از این نوبت آزاد می‌ماند: <b class="num">'+fa(after)+'</b>'}`;
+}
+function renderPlan(){
+  const names=[...new Set(S.allocs.map(a=>a.heyat))].sort((a,b)=>a.localeCompare(b,'fa'));
+  $('#heyatList').innerHTML=names.map(n=>`<option value="${esc(n)}"></option>`).join('');
+  capHint();
+  const from=S.date;let h='';
+  for(let i=0;i<21;i++){
+    const d=addDays(from,i);const list=forDay(d);if(!list.length)continue;const st=dayStats(d);
+    h+=`<div class="dayhead"><h3>${esc(dLong(d))}</h3><span class="muted num" style="font-size:13px">تعهد ${fa(st.alloc)}${st.hasProd?' از '+fa(st.prod):''} · ${fa(st.n)} هیئت ${st.hasProd&&st.free<0?'<span class="chip bad">کسری '+fa(-st.free)+'</span>':''}</span></div><div class="list">${list.map(a=>rowHTML(a,true)).join('')}</div>`;
+  }
+  $('#planList').innerHTML=h||`<div class="empty">${S.loaded?'از '+esc(dLong(from))+' به بعد نوبتی ثبت نشده. اولین نوبت را با فرم بالا بسازید.':'در حال بارگیری…'}</div>`;
+  const sb=$('#shareBox');
+  if(S.lastShare){sb.innerHTML=`<div class="card" style="display:flex;flex-direction:column;gap:10px"><h3>پیام برای هیئت (کپی کنید و پیامک یا پیام‌رسان بفرستید)</h3><div class="share" id="shareText">${esc(S.lastShare)}</div><div style="display:flex;gap:8px"><button class="btn primary" id="copyShare">کپی متن</button><button class="btn" id="closeShare">بستن</button></div></div>`}else sb.innerHTML='';
+}
+function shareText(a){return `سلام، ${a.heyat}${a.rep?' — '+a.rep:''}\nسهم غذای شما: ${fa(a.qty)} پرس\nروز تحویل: ${dFull(a.date)}\nساعت تحویل: ${faDig(a.time)}\nکد تحویل: ${faDig(a.code)}\nلطفاً نماینده هنگام تحویل این کد را اعلام کند. کد فقط یک بار قابل استفاده است.`}
+
+function renderReport(){
+  const agg={};S.allocs.filter(active).forEach(a=>{const r=agg[a.heyat]=agg[a.heyat]||{n:0,alloc:0,deliv:0,miss:0};r.n++;r.alloc+=Number(a.qty);if(a.status==='delivered')r.deliv+=Number(a.deliveredQty??a.qty);else if(a.date<todayISO())r.miss++});
+  const rows=Object.entries(agg).sort((a,b)=>b[1].alloc-a[1].alloc);
+  $('#heyatTable').innerHTML=rows.length?`<table><thead><tr><th>هیئت</th><th>نوبت</th><th>تعهد</th><th>تحویل‌شده</th><th>نیامده</th></tr></thead><tbody>${rows.map(([n,r])=>`<tr><td>${esc(n)}</td><td class="n">${fa(r.n)}</td><td class="n">${fa(r.alloc)}</td><td class="n">${fa(r.deliv)}</td><td class="n">${r.miss?'<span class="chip bad">'+fa(r.miss)+'</span>':'—'}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">هنوز داده‌ای نیست.</div>';
+  $('#logList').innerHTML=S.logs.length?S.logs.slice(0,80).map(l=>`<div><time>${esc(fStamp.format(new Date(l.at)))}</time><span>${esc(l.text)}${l.by?' <span class="muted">· '+esc(nameOf(l.by))+'</span>':''}</span></div>`).join(''):'<div class="empty">رویدادی ثبت نشده.</div>';
+  $('#expNote').textContent=S.downloads?'فایل با اکسل باز می‌شود.':'دانلود فایل در این نمایش در دسترس نیست.';
+}
+
+/* ---------- actions ---------- */
+async function deliver(id,qty){
+  if(!needDb())return;
+  const ref=S.db.doc('allocs/'+id);
+  try{
+    const snap=await ref.get();const a=snap.data();
+    if(!a){toast('این نوبت دیگر وجود ندارد');return}
+    if(a.status==='delivered'){toast('همین الان کس دیگری تحویلش داده');return}
+    if(a.status==='cancelled'){toast('این نوبت لغو شده است');return}
+    const q=qty>0?qty:Number(a.qty);
+    await ref.update({status:'delivered',deliveredQty:q,deliveredAt:new Date().toISOString(),deliveredBy:S.me||''});
+    toast(`ثبت شد: ${fa(q)} پرس به ${a.heyat}`);
+    log('deliver',`تحویل ${fa(q)} پرس به ${a.heyat} (کد ${faDig(a.code)})`,id);
+    if(S.view==='deliver'){S.lookup='';$('#codeIn').value='';render();$('#codeIn').focus()}
+  }catch(e){toast('ثبت نشد: '+(e?.message||'خطای اتصال'))}
+}
+async function setStatus(id,patch,logText,msg){
+  if(!needDb())return;
+  try{await S.db.doc('allocs/'+id).update(patch);toast(msg);log('edit',logText,id)}catch(e){toast('ثبت نشد: '+(e?.message||'خطای اتصال'))}
+}
+function startEdit(id){
+  const a=S.allocs.find(x=>x.id===id);if(!a)return;
+  S.editingId=id;setView('plan');
+  fillDateSelect($('#fDate'),S.date,a.date);
+  $('#fHeyat').value=a.heyat;$('#fRep').value=a.rep||'';$('#fPhone').value=a.phone||'';$('#fTime').value=a.time||'19:00';$('#fQty').value=a.qty;$('#fCode').value=a.code;$('#fNote').value=a.note||'';
+  $('#formTitle').textContent='ویرایش نوبت '+a.heyat;$('#fSave').textContent='ذخیره تغییرات';$('#formReset').hidden=false;capHint();
+  $('#planForm').scrollIntoView({behavior:'smooth',block:'start'});
+}
+function resetForm(){
+  S.editingId=null;$('#planForm').reset();$('#fTime').value='19:00';fillDateSelect($('#fDate'),S.date,S.date);$('#fCode').value=newCode();
+  $('#formTitle').textContent='نوبت جدید برای هیئت';$('#fSave').textContent='ثبت نوبت و ساخت کد';$('#formReset').hidden=true;capHint();
+}
+async function saveForm(e){
+  e.preventDefault();if(!needDb())return;
+  const a={heyat:$('#fHeyat').value.trim(),rep:$('#fRep').value.trim(),phone:en($('#fPhone').value.trim()),date:$('#fDate').value,time:$('#fTime').value||'19:00',qty:toInt($('#fQty').value),code:en($('#fCode').value.trim()),note:$('#fNote').value.trim()};
+  if(!a.heyat)return toast('نام هیئت را وارد کنید');
+  if(a.qty<=0)return toast('تعداد پرس را وارد کنید');
+  if(!/^\d{4,6}$/.test(a.code))return toast('کد باید ۴ تا ۶ رقم باشد');
+  if(usedCodes(S.editingId).has(a.code))return toast('این کد الان برای هیئت دیگری فعال است. «کد تازه» را بزنید');
+  $('#fSave').disabled=true;
+  try{
+    if(S.editingId){await S.db.doc('allocs/'+S.editingId).update(a);log('edit',`ویرایش نوبت ${a.heyat}: ${fa(a.qty)} پرس، ${dShort(a.date)} ساعت ${faDig(a.time)}`,S.editingId);toast('ذخیره شد')}
+    else{const r=await S.db.collection('allocs').add({...a,status:'pending',deliveredQty:null,deliveredAt:'',deliveredBy:'',createdAt:new Date().toISOString(),createdBy:S.me||''});log('create',`نوبت جدید: ${a.heyat}، ${fa(a.qty)} پرس، ${dShort(a.date)} ساعت ${faDig(a.time)}، کد ${faDig(a.code)}`,r.id);toast('نوبت ثبت شد')}
+    S.lastShare=shareText(a);resetForm();render();$('#shareBox').scrollIntoView({behavior:'smooth',block:'center'});
+  }catch(err){toast('ثبت نشد: '+(err?.message||'خطای اتصال'))}
+  finally{$('#fSave').disabled=false}
+}
+function csv(list){
+  const st={pending:'در انتظار',delivered:'تحویل شده',cancelled:'لغو'};
+  const head=['تاریخ','روز','ساعت','هیئت','نماینده','تلفن','سهم','تحویلی','وضعیت','کد','زمان تحویل','توضیح'];
+  const rows=list.map(a=>[a.date,dShort(a.date),a.time,a.heyat,a.rep,a.phone,a.qty,a.status==='delivered'?(a.deliveredQty??a.qty):'',st[a.status]||a.status,a.code,a.deliveredAt?fStamp.format(new Date(a.deliveredAt)):'',a.note]);
+  return '﻿'+[head,...rows].map(r=>r.map(v=>{v=String(v??'');return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v}).join(',')).join('\r\n');
+}
+async function exportCsv(list,name){
+  if(!S.downloads)return toast('دانلود در این نمایش در دسترس نیست');
+  try{await S.downloads.save({filename:name,data:csv(list)})}catch(e){if(e?.code!=='dismissed')toast('فایل ذخیره نشد')}
+}
+
+/* ---------- events ---------- */
+document.querySelector('nav.bottom').addEventListener('click',e=>{const b=e.target.closest('button[data-v]');if(b)setView(b.dataset.v)});
+$('#dSel').addEventListener('change',e=>setDate(e.target.value));
+$('#dPrev').addEventListener('click',()=>setDate(addDays(S.date,-1)));
+$('#dNext').addEventListener('click',()=>setDate(addDays(S.date,1)));
+const doLookup=()=>{S.lookup=en($('#codeIn').value).replace(/\D/g,'');render()};
+$('#codeIn').addEventListener('input',e=>{const v=en(e.target.value).replace(/\D/g,'');e.target.value=v;if(v.length>=4)doLookup();else if(S.lookup){S.lookup='';render()}});
+$('#codeIn').addEventListener('keydown',e=>{if(e.key==='Enter')doLookup()});
+$('#codeGo').addEventListener('click',doLookup);
+$('#codeClear').addEventListener('click',()=>{$('#codeIn').value='';S.lookup='';render();$('#codeIn').focus()});
+$('#filterTabs').addEventListener('click',e=>{const b=e.target.closest('button[data-f]');if(b){S.filter=b.dataset.f;render()}});
+$('#prodSave').addEventListener('click',async()=>{
+  if(!needDb())return;const v=toInt($('#prodIn').value);if(v<=0)return toast('تعداد پخت را وارد کنید');
+  try{await S.db.doc('days/'+S.date).set({date:S.date,production:v,updatedAt:new Date().toISOString(),updatedBy:S.me||''});toast('پخت '+dShort(S.date)+': '+fa(v)+' پرس');log('prod',`پخت ${dShort(S.date)} = ${fa(v)} پرس`)}catch(e){toast('ثبت نشد')}
+});
+document.addEventListener('click',e=>{
+  const st=e.target.closest('[data-step]');
+  if(st){const i=$('#dQty');i.value=Math.max(0,toInt(i.value)+Number(st.dataset.step));return}
+  const b=e.target.closest('[data-act]');if(!b)return;
+  const id=b.dataset.id,a=S.allocs.find(x=>x.id===id),act=b.dataset.act;
+  if(act==='deliver'){const q=toInt($('#dQty')?.value);if(a&&q>Number(a.qty))return armed(b,`بیشتر از سهم (${fa(a.qty)})! برای تأیید دوباره بزنید`,()=>deliver(id,q));if(a&&a.date!==todayISO())return armed(b,'نوبت امروز نیست. مطمئنید؟ دوباره بزنید',()=>deliver(id,q));return deliver(id,q)}
+  if(act==='quick')return armed(b,`تحویل ${fa(a.qty)} پرس به ${a.heyat}؟ دوباره بزنید`,()=>deliver(id,Number(a.qty)));
+  if(act==='undo')return armed(b,'برگرداندن تحویل؟ دوباره بزنید',()=>setStatus(id,{status:'pending',deliveredQty:null,deliveredAt:'',deliveredBy:''},`برگشت تحویل ${a.heyat}`,'تحویل برگردانده شد'));
+  if(act==='cancel')return armed(b,'لغو نوبت؟ دوباره بزنید',()=>setStatus(id,{status:'cancelled'},`لغو نوبت ${a.heyat} (${fa(a.qty)} پرس)`,'نوبت لغو شد'));
+  if(act==='restore'){if(usedCodes(id).has(a.code))return toast('کد این نوبت الان دست هیئت دیگری است؛ اول ویرایشش کنید');return setStatus(id,{status:'pending'},`برگشت نوبت ${a.heyat}`,'نوبت برگشت')}
+  if(act==='edit')return startEdit(id);
+});
+$('#planForm').addEventListener('submit',saveForm);
+$('#formReset').addEventListener('click',resetForm);
+$('#fRegen').addEventListener('click',()=>{$('#fCode').value=newCode(S.editingId)});
+['fDate','fQty'].forEach(k=>$('#'+k).addEventListener('input',capHint));
+$('#fDate').addEventListener('change',capHint);
+$('#fHeyat').addEventListener('change',()=>{ // prefill from the heyat's latest booking
+  if(S.editingId)return;const n=$('#fHeyat').value.trim();
+  const last=S.allocs.filter(a=>a.heyat===n).sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time))[0];
+  if(last){if(!$('#fRep').value)$('#fRep').value=last.rep||'';if(!$('#fPhone').value)$('#fPhone').value=last.phone||'';if(!$('#fQty').value)$('#fQty').value=last.qty;$('#fTime').value=last.time||'19:00';capHint()}
+});
+document.addEventListener('click',async e=>{
+  if(e.target.id==='closeShare'){S.lastShare=null;render()}
+  if(e.target.id==='copyShare'){try{await navigator.clipboard.writeText(S.lastShare);toast('کپی شد')}catch(_){const r=document.createRange();r.selectNodeContents($('#shareText'));const s=getSelection();s.removeAllRanges();s.addRange(r);toast('متن انتخاب شد؛ کپی کنید')}}
+});
+$('#expDay').addEventListener('click',()=>exportCsv(forDay(S.date),'heyat-'+S.date+'.csv'));
+$('#expAll').addEventListener('click',()=>exportCsv([...S.allocs].sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time)),'heyat-all.csv'));
+setInterval(()=>{if(S.view!=='plan')render()},60000); // keep "late" chips fresh
+
+/* ---------- boot ---------- */
+fillDateSelect($('#dSel'),S.date,S.date);fillDateSelect($('#fDate'),S.date,S.date);
+const hv=(location.hash||'').slice(1);setView(['deliver','board','plan','report'].includes(hv)?hv:'deliver');
+(async()=>{
+  const c=window.claude;
+  if(!c?.use){$('#hdrSub').textContent='بدون اتصال';$('#connBanner').hidden=false;$('#connBanner').textContent='این صفحه باید داخل Claude باز شود تا به دیتابیس مشترک وصل شود.';return}
+  const [db,user,dl]=await Promise.all([c.use('db'),c.use('user'),c.use('downloads')]);
+  S.downloads=dl;S.user=user;
+  if(!db){$('#hdrSub').textContent='بدون اتصال';$('#connBanner').hidden=false;$('#connBanner').textContent='اتصال به دیتابیس برقرار نشد. وارد حساب شوید و صفحه را دوباره باز کنید.';return}
+  S.db=db;
+  if(user){try{S.me=await user.id()}catch(e){} const w=user.can?.('data.write');if(w===false){S.canWrite=false;$('#roBanner').hidden=false}}
+  $('#fCode').value=newCode();
+  const timer=setTimeout(()=>{if(!S.loaded){$('#connBanner').hidden=false;$('#connBanner').textContent='بارگیری اطلاعات طول کشید. اینترنت را بررسی کنید.'}},10000);
+  const err=e=>{clearTimeout(timer);$('#connBanner').hidden=false;$('#connBanner').textContent='خطا در خواندن اطلاعات: '+(e?.message||e?.code||'')};
+  db.collection('allocs').where('date','>=',addDays(todayISO(),-60)).onSnapshot(s=>{clearTimeout(timer);$('#connBanner').hidden=true;S.allocs=s.docs.map(d=>({id:d.id,...d.data()}));S.loaded=true;if(!$('#fCode').value||usedCodes(S.editingId).has($('#fCode').value))$('#fCode').value=newCode(S.editingId);render();resolveNames()},err);
+  db.collection('days').where('date','>=',addDays(todayISO(),-60)).onSnapshot(s=>{const o={};s.docs.forEach(d=>{const v=d.data();o[v.date||d.id]=v});S.days=o;if(document.activeElement!==$('#prodIn'))$('#prodIn').value=o[S.date]?.production||'';render()},err);
+  db.collection('log').orderBy('at','desc').limit(150).onSnapshot(s=>{S.logs=s.docs.map(d=>d.data());if(S.view==='report')render();resolveNames()},err);
+  render();
+})();
+})();
+</script>
