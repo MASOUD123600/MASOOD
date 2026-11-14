@@ -13,6 +13,7 @@ const todayISO=()=>iso(new Date());
 const fLong=new Intl.DateTimeFormat('fa-IR',{weekday:'long',day:'numeric',month:'long'});
 const fFull=new Intl.DateTimeFormat('fa-IR',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
 const fShort=new Intl.DateTimeFormat('fa-IR',{day:'numeric',month:'long'});
+const fWd=new Intl.DateTimeFormat('fa-IR',{weekday:'long'});
 const fClock=new Intl.DateTimeFormat('fa-IR',{hour:'2-digit',minute:'2-digit'});
 const fStamp=new Intl.DateTimeFormat('fa-IR',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
 const dLong=s=>fLong.format(parseISO(s)), dFull=s=>fFull.format(parseISO(s)), dShort=s=>fShort.format(parseISO(s));
@@ -28,7 +29,7 @@ const ls={get(k){try{return JSON.parse(localStorage.getItem(k))}catch(e){return 
 const FILE='data.json';
 let CFG=ls.get('mozif-cfg');            // {repo, token, name}
 let SHA=null, ETAG=null, lastSync=0, online=true;
-const EMPTY=()=>({app:'mozif-alzahra',v:1,days:{},allocs:[],log:[]});
+const EMPTY=()=>({app:'mozif-alzahra',v:1,days:{},allocs:[],heyats:[],settings:{},log:[]});
 let DATA=ls.get('mozif-cache')||EMPTY();
 
 const b64enc=str=>{const b=new TextEncoder().encode(str);let s='';for(let i=0;i<b.length;i+=0x8000)s+=String.fromCharCode.apply(null,b.subarray(i,i+0x8000));return btoa(s)};
@@ -55,7 +56,7 @@ async function pull(force){
   let text;
   if(j.encoding==='base64'&&j.content)text=b64dec(j.content);
   else{const raw=await api('/contents/'+FILE,{headers:{Accept:'application/vnd.github.raw+json'}});if(!raw.ok)throw new Error(await errText(raw));text=await raw.text()}
-  const d=JSON.parse(text);DATA={...EMPTY(),...d};ls.set('mozif-cache',DATA);return true;
+  const d=JSON.parse(text);DATA=ensureHeyats({...EMPTY(),...d});ls.set('mozif-cache',DATA);return true;
 }
 /* Apply a change safely. mut(draft) edits the draft or throws Error('پیام') to abort. */
 let busy=Promise.resolve();
@@ -67,7 +68,7 @@ function commit(mut,msg){
       mut(draft);
       draft.log=(draft.log||[]).slice(-800);
       draft.updatedAt=new Date().toISOString();
-      const body={message:msg+' — '+(CFG.name||''),content:b64enc(JSON.stringify(draft,null,1))};
+      const body={message:msg+' — '+(CFG.name||''),content:b64enc(JSON.stringify(draft))};
       if(SHA)body.sha=SHA;
       const r=await api('/contents/'+FILE,{method:'PUT',body:JSON.stringify(body)});
       if(r.ok){const j=await r.json();SHA=j.content.sha;ETAG=null;DATA=draft;ls.set('mozif-cache',DATA);setSync(true);render();return true}
@@ -103,8 +104,77 @@ function timing(a){
   if(m>90)return {cls:'warn',text:'با تأخیر: '+dur(m)};
   return {cls:'ok',text:'در بازه زمانی نوبت'};
 }
-function usedCodes(exceptId,data){return new Set((data||DATA).allocs.filter(a=>a.status==='pending'&&a.id!==exceptId).map(a=>a.code))}
-function newCode(exceptId){const u=usedCodes(exceptId);for(let i=0;i<500;i++){const c=String(1000+Math.floor(Math.random()*9000));if(!u.has(c))return c}return String(Date.now()).slice(-6)}
+/* ---- heyat directory, codes, Jalali dates, messages ---- */
+const norm=s=>en(String(s??'')).replace(/[يى]/g,'ی').replace(/ك/g,'ک').replace(/[أإآ]/g,'ا').replace(/[\s‌‏()\[\]\-_.،,\/]/g,'').toLowerCase();
+const normPhone=p=>{let s=en(String(p??'')).replace(/\D/g,'');if(s.startsWith('0098'))s='0'+s.slice(4);else if(s.startsWith('98')&&s.length===12)s='0'+s.slice(2);else if(s.length===10&&s[0]==='9')s='0'+s;return s};
+const hKey=(name,phone,rep)=>norm(name)+'|'+(normPhone(phone)||norm(rep));
+function hid(k){let h=5381;for(let i=0;i<k.length;i++)h=((h*33)^k.charCodeAt(i))>>>0;return 'h'+h.toString(36)}
+/* every booking belongs to a heyat record; older bookings get one automatically (same id on every device) */
+function ensureHeyats(d){
+  d.heyats=d.heyats||[];d.settings=d.settings||{};d.allocs=d.allocs||[];
+  const byId=new Map(d.heyats.map(h=>[h.id,h])),byKey=new Map(d.heyats.map(h=>[hKey(h.name,h.phone,h.rep),h]));
+  for(const a of d.allocs){
+    if(a.heyatId&&byId.has(a.heyatId))continue;
+    const k=hKey(a.heyat,a.phone,a.rep);let h=byKey.get(k);
+    if(!h){h={id:hid(k),name:a.heyat,rep:a.rep||'',phone:a.phone||'',ref:a.ref||'',note:''};while(byId.has(h.id))h.id+='x';d.heyats.push(h);byKey.set(k,h);byId.set(h.id,h)}
+    a.heyatId=h.id;
+  }
+  return d;
+}
+const heyats=()=>DATA.heyats||[];
+const heyatById=id=>heyats().find(h=>h.id===id);
+/* one heyat keeps the same code for all its days; a code can't be active for two different heyats */
+const codeTaken=(code,heyatId,exceptId,d)=>(d||DATA).allocs.some(a=>a.status==='pending'&&a.id!==exceptId&&a.code===code&&a.heyatId!==heyatId);
+function newCode(d){const u=new Set((d||DATA).allocs.filter(a=>a.status==='pending').map(a=>a.code));for(let i=0;i<500;i++){const c=String(1000+Math.floor(Math.random()*9000));if(!u.has(c))return c}return String(Date.now()).slice(-6)}
+const heyatCode=(hId,d)=>{const t=todayISO();const l=(d||DATA).allocs.filter(a=>a.heyatId===hId&&a.status==='pending'&&a.date>=t).sort((a,b)=>a.date.localeCompare(b.date));return l[0]?.code||''};
+
+const fJ=new Intl.DateTimeFormat('en-u-ca-persian-nu-latn',{year:'numeric',month:'numeric',day:'numeric'});
+const jParts=s=>{const p={};fJ.formatToParts(parseISO(s)).forEach(x=>{if(x.type!=='literal')p[x.type]=parseInt(x.value,10)});return p};
+const jNum=s=>{const p=jParts(s);return faDig(p.year+'/'+pad(p.month)+'/'+pad(p.day))};
+/* Jalali -> ISO: estimate, then step until the browser's own Persian calendar agrees */
+function j2g(jy,jm,jd){
+  if(!(jy>1300&&jy<1500&&jm>=1&&jm<=12&&jd>=1&&jd<=31))return null;
+  const off=(jm<=7?(jm-1)*31:186+(jm-7)*30)+jd-1;const d=new Date(jy+621,2,21+off);
+  for(let i=0;i<8;i++){const p=jParts(iso(d));if(p.year===jy&&p.month===jm&&p.day===jd)return iso(d);
+    const cur=p.year*372+p.month*31+p.day,want=jy*372+jm*31+jd;d.setDate(d.getDate()+(cur<want?1:-1))}
+  return null;
+}
+const tShort=t=>{if(!t)return '';const[h,m]=t.split(':');return faDig(m==='00'||m==null?String(+h):(+h)+':'+m)};
+const tWin=a=>tShort(a.time)+(a.timeEnd?' الی '+tShort(a.timeEnd):'');
+
+const DEFAULT_TPL=`مضیف الزهرا (س)
+{مخاطب}
+
+{روزها}
+
+ساعت تحویل {ساعت} می باشد.
+کد تحویل غذای شما {کد} می باشد لذا خواهشمند است این پیامک را همراه خود داشته باشید و فقط با این کد تحویل داده میشود.
+لطفا هنگام مراجعه جهت تحویل غذا علاوه بر رعایت زمان اعلام شده ،از پارک کردن پشت درب گاراژ امتناع کنید (پس از اطمینان از حاضر بودن غذا وارد شوید).
+آدرس جهت تحویل غذا : میدان رازی خ کارگر جنوبی به سمت میدان راه آهن نرسیده به خ زربافیان پلاک ۱۷۶ درب گاراژ`;
+function addressee(h){
+  const r=(h.rep||'').trim();if(!r||r==='-')return 'خادمین محترم '+h.name;
+  let t;if(/^(جناب|سرکار)/.test(r))t=r;else if(/^[آا]قای/.test(r))t='جناب '+r;else if(/^خان[وُ]?م/.test(r))t='سرکار '+r;else t='جناب آقای '+r;
+  return t+' خادم '+h.name;
+}
+/* the days one message covers: this heyat's waiting days with this code (from today on) */
+function msgGroup(hId,code){
+  const t=todayISO();const all=allocs().filter(a=>a.heyatId===hId&&a.code===code&&a.status==='pending').sort((a,b)=>a.date.localeCompare(b.date));
+  const fut=all.filter(a=>a.date>=t);return fut.length?fut:all;
+}
+function buildMsg(hId,code){
+  const h=heyatById(hId),g=msgGroup(hId,code);if(!h||!g.length)return '';
+  const same=g.every(a=>tWin(a)===tWin(g[0]));
+  const days=g.map(a=>`${jNum(a.date)} - تعداد ${faDig(a.qty)} پرس${same?'':' - ساعت '+tWin(a)}`).join('\n');
+  return (DATA.settings?.msgTpl||DEFAULT_TPL).replace(/\{مخاطب\}/g,addressee(h)).replace(/\{روزها\}/g,days).replace(/\{ساعت\}/g,tWin(g[0])).replace(/\{کد\}/g,faDig(code)).replace(/\{هیئت\}/g,h.name).replace(/\{نماینده\}/g,h.rep||'');
+}
+function msgButtons(hId,code){
+  const h=heyatById(hId),txt=buildMsg(hId,code);if(!h||!txt)return '';
+  const p=normPhone(h.phone),mob=/^09\d{9}$/.test(p),q=encodeURIComponent(txt),at=`data-hact="sent" data-id="${hId}" data-code="${esc(code)}"`;
+  return (mob?`<a class="btn sm wa" target="_blank" rel="noopener" href="https://wa.me/98${p.slice(1)}?text=${q}" ${at}>واتساپ</a><a class="btn sm" href="sms:${p}?&body=${q}" ${at}>پیامک</a>`:`<span class="chip warn">شماره موبایل ندارد</span>`)
+    +`<button type="button" class="btn sm" data-hact="copy" data-id="${hId}" data-code="${esc(code)}">کپی متن</button>`;
+}
+const unsent=h=>{const t=todayISO();return allocs().some(a=>a.heyatId===h.id&&a.status==='pending'&&a.date>=t&&!a.msgAt)};
+ensureHeyats(DATA);
 
 /* ================= UI utils ================= */
 let toastT;
@@ -140,12 +210,12 @@ function fillDayInputs(){const day=DATA.days?.[S.date];if(document.activeElement
 function setDate(d){S.date=d;$('#dSel').value=d;fillDayInputs();render()}
 
 /* ================= views ================= */
-const VIEWS=['deliver','board','plan','report','settings'];
+const VIEWS=['deliver','board','plan','dir','report','settings'];
 function setView(v){
   S.view=v;VIEWS.forEach(k=>$('#v-'+k).hidden=k!==v);
   document.querySelectorAll('nav.bottom button').forEach(b=>b.setAttribute('aria-current',b.dataset.v===v?'page':'false'));
   if(location.hash!=='#'+v)try{history.replaceState(null,'','#'+v)}catch(e){}
-  if(v==='settings'){$('#cRepo').value=CFG?.repo||'';$('#cToken').value=CFG?.token||'';$('#cName').value=CFG?.name||'';$('#cForget').hidden=!CFG}
+  if(v==='settings'){$('#cRepo').value=CFG?.repo||'';$('#cToken').value=CFG?.token||'';$('#cName').value=CFG?.name||'';$('#cForget').hidden=!CFG;$('#tplIn').value=DATA.settings?.msgTpl||DEFAULT_TPL}
   render();if(v==='deliver')setTimeout(()=>$('#codeIn').focus(),50);
 }
 function render(){
@@ -154,14 +224,16 @@ function render(){
   if(S.view==='deliver')renderDeliver(st);
   if(S.view==='board')renderBoard(st);
   if(S.view==='plan')renderPlan();
+  if(S.view==='dir')renderDir();
   if(S.view==='report')renderReport();
 }
 function rowHTML(a,withActs){
   const done=a.status==='delivered',cancel=a.status==='cancelled';
   const late=!done&&!cancel&&a.date===todayISO()&&minutesFromNow(a)>30;
   const q=done?Number(a.deliveredQty??a.qty):Number(a.qty);
-  const sub=[`<span>ساعت ${faDig(a.time||'—')}</span>`,`<span>کد ${faDig(a.code)}</span>`];
+  const sub=[`<span>ساعت ${tWin(a)||'—'}</span>`,`<span>کد ${faDig(a.code)}</span>`];
   if(a.rep)sub.push(`<span>${esc(a.rep)}</span>`);
+  if(a.ref)sub.push(`<span>معرف: ${esc(a.ref)}</span>`);
   if(done)sub.push(`<span class="chip ok">تحویل ${esc(fClock.format(new Date(a.deliveredAt)))}${a.deliveredBy?' · '+esc(a.deliveredBy):''}</span>`);
   if(done&&Number(a.deliveredQty)!==Number(a.qty))sub.push(`<span class="chip warn">کمتر از سهم: ${fa(a.qty)}</span>`);
   if(late)sub.push(`<span class="chip bad">دیر کرده</span>`);
@@ -183,12 +255,12 @@ function renderDeliver(st){
   if(!S.lookup){box.innerHTML='';return}
   const code=S.lookup;const m=allocs().filter(a=>a.code===code&&active(a));
   if(!m.length){box.innerHTML=`<div class="card result"><div class="banner bad"><b>کد ${faDig(code)} پیدا نشد.</b><br>کد را دوباره از نماینده بپرسید یا در «برنامه‌ریزی» جستجو کنید.</div></div>`;return}
-  const t=todayISO();
-  m.sort((a,b)=>(a.status==='pending'?0:1)-(b.status==='pending'?0:1)||Math.abs(parseISO(a.date)-parseISO(t))-Math.abs(parseISO(b.date)-parseISO(t)));
-  const a=m[0];
+  const t=todayISO(),near=(x,y)=>Math.abs(parseISO(x.date)-parseISO(t))-Math.abs(parseISO(y.date)-parseISO(t));
+  const a=m.find(x=>x.date===t&&x.status==='pending')||m.find(x=>x.date===t)||m.filter(x=>x.status==='pending').sort(near)[0]||m.slice().sort(near)[0];
+  const others=m.length>1?`<div class="futs"><b>همه روزهای این کد</b>${m.slice().sort((x,y)=>x.date.localeCompare(y.date)).map(x=>`<span>${x.status==='delivered'?'✓':'○'} ${esc(dLong(x.date))} · ${fa(x.status==='delivered'?(x.deliveredQty??x.qty):x.qty)} پرس${x.status==='delivered'?' · گرفته':x.date<t?' · نیامده':''}${x.id===a.id?' ←':''}</span>`).join('')}</div>`:'';
   if(a.status==='delivered'){
     box.innerHTML=`<div class="card result" style="border-color:var(--bad)"><div class="banner bad"><b>این سهم قبلاً تحویل داده شده است.</b></div><div class="who">${esc(a.heyat)}</div>
-    <dl class="kv"><dt>تحویل شده</dt><dd class="num">${fa(a.deliveredQty??a.qty)} پرس</dd><dt>زمان تحویل</dt><dd>${esc(fStamp.format(new Date(a.deliveredAt)))}</dd>${a.deliveredBy?`<dt>ثبت توسط</dt><dd>${esc(a.deliveredBy)}</dd>`:''}<dt>نوبت</dt><dd>${esc(dLong(a.date))} · ساعت ${faDig(a.time)}</dd></dl>
+    <dl class="kv"><dt>تحویل شده</dt><dd class="num">${fa(a.deliveredQty??a.qty)} پرس</dd><dt>زمان تحویل</dt><dd>${esc(fStamp.format(new Date(a.deliveredAt)))}</dd>${a.deliveredBy?`<dt>ثبت توسط</dt><dd>${esc(a.deliveredBy)}</dd>`:''}<dt>نوبت</dt><dd>${esc(dLong(a.date))} · ساعت ${tWin(a)}</dd></dl>${others}
     <button class="btn danger" data-act="undo" data-id="${a.id}">برگرداندن تحویل (اگر اشتباه ثبت شده)</button></div>`;return;
   }
   const tm=timing(a);
@@ -197,7 +269,7 @@ function renderDeliver(st){
     <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center"><span class="chip ${tm.cls}">${esc(tm.text)}</span><span class="muted num">کد ${faDig(a.code)}</span></div>
     <div class="who">${esc(a.heyat)}</div>
     <div class="bigqty"><b class="num">${fa(a.qty)}</b><span>پرس</span></div>
-    <dl class="kv"><dt>نوبت</dt><dd>${esc(dLong(a.date))} · ساعت ${faDig(a.time)}</dd>${a.rep?`<dt>نماینده</dt><dd>${esc(a.rep)}</dd>`:''}${a.phone?`<dt>تلفن</dt><dd style="direction:ltr;text-align:right">${esc(faDig(a.phone))}</dd>`:''}${a.note?`<dt>توضیح</dt><dd>${esc(a.note)}</dd>`:''}</dl>
+    <dl class="kv"><dt>نوبت</dt><dd>${esc(dLong(a.date))} · ساعت ${tWin(a)}</dd>${a.rep?`<dt>نماینده</dt><dd>${esc(a.rep)}</dd>`:''}${a.phone?`<dt>تلفن</dt><dd style="direction:ltr;text-align:right">${esc(faDig(a.phone))}</dd>`:''}${a.ref?`<dt>معرف</dt><dd>${esc(a.ref)}</dd>`:''}${a.note?`<dt>توضیح</dt><dd>${esc(a.note)}</dd>`:''}</dl>${others}
     <div class="stepper"><span class="muted" style="font-size:13px">تعداد تحویلی:</span><button class="iconbtn" data-step="-10">−</button><input id="dQty" data-id="${a.id}" inputmode="numeric" value="${esc(cur)}"><button class="iconbtn" data-step="10">+</button></div>
     <button class="btn primary big" data-act="deliver" data-id="${a.id}">${tm.cls==='bad'?'تحویل خارج از نوبت ✓':'تحویل داده شد ✓'}</button>
   </div>`;
@@ -249,19 +321,200 @@ function capHint(){
   el.innerHTML=`پخت ${esc(dShort(d))}: <b class="num">${fa(st.prod)}</b>${st.staffQty?' · نیروها: <b class="num">'+fa(st.staffQty)+'</b>':''} · تعهد شده: <b class="num">${fa(used)}</b> · ${after<0?'بعد از این نوبت <b>کسری '+fa(-after)+'</b> پرس':'بعد از این نوبت آزاد می‌ماند: <b class="num">'+fa(after)+'</b>'}`;
 }
 function renderPlan(){
-  const names=[...new Set(allocs().map(a=>a.heyat))].sort((a,b)=>a.localeCompare(b,'fa'));
-  $('#heyatList').innerHTML=names.map(n=>`<option value="${esc(n)}"></option>`).join('');
-  if(!$('#fCode').value)$('#fCode').value=newCode(S.editingId);
+  $('#heyatList').innerHTML=[...new Set(heyats().map(h=>h.name))].sort((a,b)=>a.localeCompare(b,'fa')).map(n=>`<option value="${esc(n)}"></option>`).join('');
+  $('#refList').innerHTML=[...new Set(heyats().map(h=>h.ref).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fa')).map(n=>`<option value="${esc(n)}"></option>`).join('');
+  if(!$('#fCode').value)$('#fCode').value=newCode();
   capHint();
-  let h='';
-  for(let i=0;i<21;i++){
-    const d=addDays(S.date,i);const list=forDay(d);if(!list.length)continue;const st=dayStats(d);
-    h+=`<div class="dayhead"><h3>${esc(dLong(d))}</h3><span class="muted num" style="font-size:13px">تعهد ${fa(st.alloc)}${st.hasProd?' از '+fa(st.prod):''} · ${fa(st.n)} هیئت ${st.hasProd&&st.free<0?'<span class="chip bad">کسری '+fa(-st.free)+'</span>':''}</span></div><div class="list">${list.map(a=>rowHTML(a,true)).join('')}</div>`;
-  }
-  $('#planList').innerHTML=h||`<div class="empty">از ${esc(dLong(S.date))} به بعد نوبتی ثبت نشده. اولین نوبت را با فرم بالا بسازید.</div>`;
-  $('#shareBox').innerHTML=S.lastShare?`<div class="card" style="display:flex;flex-direction:column;gap:10px"><h3>پیام برای هیئت (کپی کنید و پیامک یا پیام‌رسان بفرستید)</h3><div class="share" id="shareText">${esc(S.lastShare)}</div><div style="display:flex;gap:8px"><button class="btn primary" id="copyShare">کپی متن</button><button class="btn" id="closeShare">بستن</button></div></div>`:'';
+  const t=todayISO();
+  /* cooking plan: every coming day that has bookings */
+  const days=[...new Set(allocs().filter(a=>active(a)&&a.date>=t).map(a=>a.date))].sort();
+  let tot=0;const anyStaff=days.some(d=>dayStats(d).staffQty>0);
+  $('#cookTable').innerHTML=days.length?`<table class="cooktbl"><thead><tr><th>روز</th><th>هیئت</th>${anyStaff?'<th>هیئت‌ها</th><th>نیروها</th>':''}<th>باید پخته شود</th></tr></thead><tbody>${days.map(d=>{const st=dayStats(d);const need=st.alloc+st.staffQty;tot+=need;
+    return `<tr><td><b>${esc(dLong(d))}</b><br><span class="muted">${jNum(d)}</span></td><td class="n">${fa(st.n)}</td>${anyStaff?`<td class="n">${fa(st.alloc)}</td><td class="n">${st.staffQty?fa(st.staffQty):'—'}</td>`:''}<td class="n"><b class="cooknum">${fa(need)}</b></td></tr>`}).join('')}
+    <tr><td><b>جمع ${fa(days.length)} روز</b></td><td></td>${anyStaff?'<td></td><td></td>':''}<td class="n"><b class="cooknum">${fa(tot)}</b></td></tr></tbody></table>`:'<div class="empty">برای روزهای آینده هنوز نوبتی ثبت نشده.</div>';
+  /* one framed, colour-coded box per day */
+  const from=S.date<t?S.date:t;
+  const list=[...new Set(allocs().filter(a=>a.date>=from).map(a=>a.date))].sort().slice(0,60);
+  if(!S.openDays){S.openDays=new Set(list.slice(0,1))}
+  $('#planList').innerHTML=list.length?list.map((d,i)=>{const st=dayStats(d),open=S.openDays.has(d),need=st.alloc+st.staffQty;
+    return `<section class="daybox c${i%5}"><button type="button" class="dayband" data-daytog="${d}" aria-expanded="${open}">
+      <span class="dn">${esc(dLong(d))}${d===t?' · امروز':''}</span><span class="dj num">${jNum(d)}</span>
+      <span class="cook">باید پخته شود: <b class="num">${fa(need)}</b> پرس</span><span class="dj">${open?'بستن ▴':'دیدن هیئت‌ها ▾'}</span>
+      <span class="dmeta num">${fa(st.n)} هیئت · سهم هیئت‌ها ${fa(st.alloc)}${st.staffQty?' · نیروها '+fa(st.staffQty):''}${st.hasProd?' · پخت ثبت‌شده '+fa(st.prod):''} ${st.hasProd&&st.free<0?'<span class="chip bad">کسری '+fa(-st.free)+'</span>':''}</span>
+    </button>${open?`<div class="list">${forDay(d).map(a=>rowHTML(a,true)).join('')}</div>`:''}</section>`}).join(''):`<div class="empty">هنوز نوبتی ثبت نشده. اولین نوبت را با فرم بالا بسازید یا از «دفتر» فایل اکسل بارگذاری کنید.</div>`;
+  const ls=S.lastShare,sb=$('#shareBox');
+  if(ls&&buildMsg(ls.heyatId,ls.code))sb.innerHTML=`<div class="card" style="display:flex;flex-direction:column;gap:10px"><h3>پیام برای هیئت</h3><div class="share" id="shareText">${esc(buildMsg(ls.heyatId,ls.code))}</div><div class="acts2">${msgButtons(ls.heyatId,ls.code)}<button type="button" class="btn sm" id="closeShare">بستن</button></div></div>`;
+  else sb.innerHTML='';
 }
-function shareText(a){return `بسم الله\nمحفل روضه مضیف الزهراء (س) — ${a.heyat}${a.rep?' (جناب '+a.rep+')':''}\nسهم غذای شما: ${fa(a.qty)} پرس\nروز تحویل: ${dFull(a.date)}\nساعت تحویل: ${faDig(a.time)}\nکد تحویل: ${faDig(a.code)}\nلطفاً نماینده هنگام تحویل این کد را اعلام کند. کد فقط یک بار قابل استفاده است.`}
+
+/* ================= directory (دفتر) ================= */
+function hayOf(h){const cs=[...new Set(allocs().filter(a=>a.heyatId===h.id).map(a=>a.code))].join(' ');return norm(h.name)+' '+norm(h.rep)+' '+normPhone(h.phone)+' '+norm(h.ref)+' '+cs+' '+norm(h.note)}
+function matchQ(hay,q){const ts=en(q).trim().split(/\s+/).filter(Boolean).map(x=>/^\+?\d+$/.test(x)?x.replace(/^(\+98|0098)/,'0').replace(/\D/g,''):norm(x)).filter(Boolean);return ts.every(x=>hay.includes(x)||(/^0\d+$/.test(x)&&hay.includes(x.slice(1))))}
+function heyatCard(h){
+  const t=todayISO(),mine=allocs().filter(a=>a.heyatId===h.id&&active(a)).sort((a,b)=>a.date.localeCompare(b.date));
+  const fut=mine.filter(a=>a.date>=t&&a.status==='pending'),done=mine.filter(a=>a.status==='delivered'),miss=mine.filter(a=>a.status==='pending'&&a.date<t);
+  const codes=[...new Set(fut.map(a=>a.code))],code=codes.join('، '),p=normPhone(h.phone);
+  const sum=l=>l.reduce((s,a)=>s+Number(a.status==='delivered'?(a.deliveredQty??a.qty):a.qty),0);
+  return `<div class="card hcard">
+    <div class="hhead"><div class="who">${esc(h.name)}</div>${unsent(h)?'<span class="chip warn">پیام ارسال نشده</span>':fut.length?'<span class="chip ok">پیام ارسال شده</span>':''}</div>
+    <dl class="kv"><dt>نماینده</dt><dd>${esc(h.rep||'—')}</dd><dt>شماره</dt><dd>${p?`<a class="tel" href="tel:${p}">${faDig(p)}</a>`:'—'}</dd>
+      <dt>معرف</dt><dd>${h.ref?`<button type="button" class="linkbtn" data-hact="ref" data-ref="${esc(h.ref)}">${esc(h.ref)}</button>`:'—'}</dd>
+      ${code?`<dt>کد تحویل</dt><dd class="num">${faDig(code)}</dd>`:''}${h.note?`<dt>توضیح</dt><dd>${esc(h.note)}</dd>`:''}
+      <dt>تا حالا</dt><dd class="num">${fa(done.length)} بار گرفته (${fa(sum(done))} پرس)${miss.length?' · <span class="chip bad">'+fa(miss.length)+' بار نیامده</span>':''}</dd></dl>
+    ${fut.length?`<div class="futs"><b>نوبت‌های پیش‌رو (${fa(sum(fut))} پرس)</b>${fut.map(a=>`<span>${jNum(a.date)} · ${esc(fWd.format(parseISO(a.date)))} · ${fa(a.qty)} پرس · ساعت ${tWin(a)}</span>`).join('')}</div>`:'<div class="muted" style="font-size:13px">نوبت پیش‌رو ندارد.</div>'}
+    ${codes.map(c=>`<div class="acts2">${codes.length>1?`<span class="muted num" style="font-size:13px">پیام کد ${faDig(c)}:</span>`:''}${msgButtons(h.id,c)}</div>`).join('')}<div class="acts2"><button type="button" class="btn sm primary" data-hact="book" data-id="${h.id}">نوبت جدید</button><button type="button" class="btn sm" data-hact="edit" data-id="${h.id}">ویرایش</button>${mine.length?'':`<button type="button" class="btn sm danger" data-hact="del" data-id="${h.id}">حذف</button>`}</div>
+  </div>`;
+}
+function renderDir(){
+  const q=$('#dirQ').value,tab=S.dirTab||'heyat';
+  document.querySelectorAll('#dirTabs button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.t===tab));
+  const all=heyats().slice().sort((a,b)=>a.name.localeCompare(b.name,'fa'));
+  let html='',count='';
+  if(tab==='ref'){
+    const g={};all.forEach(h=>{if(h.ref)(g[h.ref]=g[h.ref]||[]).push(h)});
+    const refs=Object.entries(g).filter(([r,hs])=>!q.trim()||matchQ(norm(r)+' '+hs.map(hayOf).join(' '),q)).sort((a,b)=>b[1].length-a[1].length);
+    count=`${fa(refs.length)} معرف`;
+    html=refs.map(([r,hs])=>{const tot=allocs().filter(a=>active(a)&&hs.some(h=>h.id===a.heyatId)).reduce((s,a)=>s+Number(a.qty),0);
+      return `<div class="card hcard"><div class="hhead"><div class="who">${esc(r)}</div><span class="chip ok">${fa(hs.length)} هیئت · ${fa(tot)} پرس</span></div>
+      <div class="futs"><b>هیئت‌هایی که معرفی کرده</b>${hs.map(h=>`<button type="button" class="linkbtn" data-hact="find" data-q="${esc(h.name)}">${esc(h.name)}${h.rep?' — '+esc(h.rep):''}${h.phone?' — '+faDig(normPhone(h.phone)):''}</button>`).join('')}</div></div>`}).join('')
+      ||'<div class="empty">معرفی پیدا نشد. معرف را هنگام ثبت نوبت یا در ویرایش هیئت وارد کنید.</div>';
+  }else{
+    let res=all.filter(h=>!q.trim()||matchQ(hayOf(h),q));
+    const nq=norm(q);if(nq){const rank=h=>{const n=norm(h.name);return n===nq?0:n.startsWith(nq)?1:n.includes(nq)?2:3};res.sort((a,b)=>rank(a)-rank(b))}
+    if(tab==='unsent')res=res.filter(unsent);
+    count=`${fa(res.length)} هیئت${res.length!==all.length?' از '+fa(all.length):''}`;
+    html=res.slice(0,40).map(heyatCard).join('')+(res.length>40?`<div class="empty">${fa(res.length-40)} هیئت دیگر هم هست؛ جستجو را دقیق‌تر کنید.</div>`:'')
+      ||`<div class="empty">${all.length?'چیزی پیدا نشد.':'هنوز هیئتی ثبت نشده. از پایین همین صفحه هیئت اضافه کنید یا فایل اکسل بارگذاری کنید.'}</div>`;
+  }
+  $('#dirCount').textContent=count;$('#dirList').innerHTML=html;
+}
+function bookFor(h,keepDate){
+  if(!keepDate){setView('plan');resetForm()}
+  $('#fHeyat').value=h.name;$('#fRep').value=h.rep||'';$('#fPhone').value=h.phone||'';$('#fRef').value=h.ref||'';
+  const last=allocs().filter(a=>a.heyatId===h.id).sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time))[0];
+  if(last){if(!$('#fQty').value)$('#fQty').value=last.qty;$('#fTime').value=last.time||'19:00';$('#fTimeEnd').value=last.timeEnd||''}
+  const c=heyatCode(h.id);if(c)$('#fCode').value=c;
+  S.formHeyatId=h.id;capHint();
+  if(!keepDate)$('#planForm').scrollIntoView({behavior:'smooth',block:'start'});
+}
+function editHeyat(h){
+  S.hEdit=h?.id||null;$('#hName').value=h?.name||'';$('#hRep').value=h?.rep||'';$('#hPhone').value=h?.phone||'';$('#hRef').value=h?.ref||'';$('#hNote').value=h?.note||'';
+  $('#hTitle').textContent=h?'ویرایش '+h.name:'هیئت جدید';$('#hCancel').hidden=!h;
+  if(h)$('#hForm').scrollIntoView({behavior:'smooth',block:'start'});
+}
+async function saveHeyat(e){
+  e.preventDefault();
+  const v={name:$('#hName').value.trim(),rep:$('#hRep').value.trim(),phone:normPhone($('#hPhone').value),ref:$('#hRef').value.trim(),note:$('#hNote').value.trim()};
+  if(!v.name)return toast('نام هیئت را وارد کنید');
+  const id=S.hEdit;
+  const ok=await act(()=>commit(d=>{
+    const k=hKey(v.name,v.phone,v.rep);
+    if(d.heyats.some(h=>h.id!==id&&hKey(h.name,h.phone,h.rep)===k))throw new Error('هیئتی با همین نام و شماره قبلاً ثبت شده است');
+    if(id){const h=d.heyats.find(x=>x.id===id);if(!h)throw new Error('این هیئت دیگر وجود ندارد');Object.assign(h,v);
+      d.allocs.forEach(a=>{if(a.heyatId===id)Object.assign(a,{heyat:v.name,rep:v.rep,phone:v.phone,ref:v.ref})});logEntry(d,'heyat','ویرایش اطلاعات '+v.name)}
+    else{let nid=hid(k);while(d.heyats.some(h=>h.id===nid))nid+='x';d.heyats.push({id:nid,...v});logEntry(d,'heyat','هیئت جدید: '+v.name)}
+  },'heyat '+v.name),id?'ذخیره شد':'هیئت اضافه شد');
+  if(ok){editHeyat(null);render()}
+}
+
+/* ================= Excel import ================= */
+const IMP={sheets:null,file:''};
+function loadXLSX(){return window.XLSX?Promise.resolve():new Promise((res,rej)=>{const s=document.createElement('script');s.src='vendor/xlsx.mini.min.js';s.onload=()=>res();s.onerror=()=>rej(new Error('ابزار خواندن اکسل بارگیری نشد. اینترنت را بررسی کنید.'));document.head.appendChild(s)})}
+const cellStr=v=>v==null?'':String(v).trim();
+const toHM=s=>{s=en(s).replace(/[^\d:]/g,'');if(!s)return '';let[h,m]=s.split(':');h=+h;m=+(m||0);if(!(h>=0&&h<24&&m>=0&&m<60))return '';return pad(h)+':'+pad(m)};
+function parseTimeWin(v){const s=cellStr(v);if(!s)return ['',''];const p=en(s).split(/الی|تا|-|–/);return [toHM(p[0]||''),toHM(p[1]||'')]}
+function parseSheet(rows,name){
+  let hr=-1,cols=null;
+  for(let r=0;r<Math.min(rows.length,12);r++){
+    const row=rows[r]||[];const c={days:[]};
+    row.forEach((v,i)=>{const s=cellStr(v);if(!s)return;
+      const n=Number(en(s));
+      if(/^\d{1,2}$/.test(en(s))&&n>=1&&n<=31){c.days.push({i,n});return}
+      if(/معرف/.test(s))c.ref=i;else if(/مسئول|مسوول|نماینده/.test(s))c.rep=i;else if(/تماس|شماره|تلفن|موبایل|همراه/.test(s))c.phone=i;else if(/ساعت/.test(s))c.time=i;else if(/کد/.test(s))c.code=i;else if(/هیئت|هیأت|مسجد|نام/.test(s)&&c.name==null)c.name=i});
+    if(c.name!=null&&c.days.length){hr=r;cols=c;break}
+  }
+  if(hr<0)return null;
+  const wk=(rows[hr+1]||[]),items=[];
+  for(let r=hr+1;r<rows.length;r++){
+    const row=rows[r]||[];const nm=cellStr(row[cols.name]);if(!nm||nm==='-')continue;
+    const q=cols.days.map(d=>{const n=Number(en(cellStr(row[d.i])).replace(/[^\d.]/g,''));return n>0?Math.round(n):0});
+    const [t1,t2]=cols.time!=null?parseTimeWin(row[cols.time]):['',''];
+    const g=k=>cols[k]!=null?cellStr(row[cols[k]]):'';
+    const rep=g('rep'),ph=g('phone');
+    items.push({name:nm.replace(/\s+/g,' '),rep:rep==='-'?'':rep,phone:normPhone(ph),ref:g('ref')==='-'?'':g('ref'),time:t1,timeEnd:t2,code:en(g('code')).replace(/\D/g,''),q});
+  }
+  return {name,dayNums:cols.days.map(d=>d.n),weekdays:cols.days.map(d=>cellStr(wk[d.i])),items,hasRef:cols.ref!=null};
+}
+function sheetDates(sh){const s=j2g(sh.jy,sh.jm,sh.jd);return s?sh.dayNums.map((_,i)=>addDays(s,i)):null}
+async function readExcel(file){
+  await loadXLSX();
+  const wb=XLSX.read(await file.arrayBuffer(),{type:'array'});
+  const all=wb.SheetNames.map(n=>XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,defval:null,raw:true}));
+  const found=[];all.forEach((rows,si)=>rows.forEach(row=>(row||[]).forEach(v=>{const m=typeof v==='string'&&en(v).match(/(1[34]\d{2})[\/\-.](\d{1,2})[\/\-.](\d{1,2})/);if(m)found.push({si,y:+m[1],m:+m[2],d:+m[3]})})));
+  const tp=jParts(todayISO());
+  const sheets=[];
+  all.forEach((rows,si)=>{const sh=parseSheet(rows,wb.SheetNames[si]);if(!sh||!sh.items.length)return;
+    const d0=sh.dayNums[0],c=found.filter(f=>f.d===d0),pick=c.find(f=>f.si===si)||c.find(f=>f.si===si+1)||c[0];
+    Object.assign(sh,{on:true,jy:pick?pick.y:tp.year,jm:pick?pick.m:tp.month,jd:d0,guessed:!pick});sheets.push(sh)});
+  if(!sheets.length)throw new Error('در این فایل جدولی با ستون «هیئت» و ستون‌های روز (مثل ۱۷، ۱۸، ۱۹) پیدا نشد.');
+  IMP.sheets=sheets;IMP.file=file.name;
+}
+function renderImp(){
+  const box=$('#xlPreview');if(!IMP.sheets){box.innerHTML='';return}
+  const t=todayISO(),skip=$('#xlSkipPast')?$('#xlSkipPast').checked:true;
+  box.innerHTML=`<div class="banner warn">فایل «${esc(IMP.file)}» خوانده شد. اول نگاه کنید درست است، بعد دکمه پایین را بزنید. تا آن موقع چیزی ثبت نمی‌شود.</div>`+
+  IMP.sheets.map((sh,si)=>{const dates=sheetDates(sh);const nAl=sh.items.reduce((s,it)=>s+it.q.filter(Boolean).length,0);
+    const bad=dates&&dates.some((d,i)=>jParts(d).day!==sh.dayNums[i]);
+    return `<div class="impsheet"><label class="chk"><input type="checkbox" data-imp="on" data-si="${si}" ${sh.on?'checked':''}> <b>برگه «${esc(sh.name)}»</b> — ${fa(sh.items.length)} هیئت، ${fa(nAl)} نوبت</label>
+    <div class="impdate"><span>تاریخ اولین ستون:</span><input data-imp="jd" data-si="${si}" inputmode="numeric" value="${sh.jd}" aria-label="روز"><span>/</span><input data-imp="jm" data-si="${si}" inputmode="numeric" value="${sh.jm}" aria-label="ماه"><span>/</span><input class="y" data-imp="jy" data-si="${si}" inputmode="numeric" value="${sh.jy}" aria-label="سال"></div>
+    ${sh.guessed?'<div class="chip warn">ماه و سال در فایل پیدا نشد؛ خودتان بررسی کنید</div>':''}
+    ${!dates?'<div class="chip bad">این تاریخ درست نیست</div>':`${bad?'<div class="chip bad">شماره روزهای فایل با این تاریخ پشت‌سرهم جور نیست؛ تاریخ را بررسی کنید</div>':''}
+    <div class="tablewrap"><table><thead><tr><th>روز</th><th>تاریخ</th><th>هیئت</th><th>جمع پرس</th></tr></thead><tbody>${dates.map((d,i)=>{const wd=fWd.format(parseISO(d)),fw=sh.weekdays[i].replace(/\s/g,''),okw=!fw||norm(fw)===norm(wd);
+      const n=sh.items.filter(it=>it.q[i]).length,tot=sh.items.reduce((s,it)=>s+it.q[i],0);
+      return `<tr class="${skip&&d<t?'past':''}"><td>${esc(wd)} ${okw?'':'<span class="chip bad">در فایل: '+esc(sh.weekdays[i])+'</span>'}</td><td class="n">${jNum(d)}${d<t?' <span class="chip mute">گذشته</span>':''}</td><td class="n">${fa(n)}</td><td class="n">${fa(tot)}</td></tr>`}).join('')}</tbody></table></div>`}
+    </div>`}).join('')+
+  `<label class="chk"><input type="checkbox" id="xlSkipPast" ${skip?'checked':''}> نوبت روزهای گذشته وارد نشود (فقط اسم و مشخصات هیئت ثبت شود)</label>
+   <div class="acts2"><button type="button" class="btn primary" id="xlGo">وارد کردن به برنامه</button><button type="button" class="btn" id="xlCancel">انصراف</button></div>`;
+}
+async function doImport(){
+  const t=todayISO(),skip=$('#xlSkipPast').checked;const use=IMP.sheets.filter(s=>s.on);
+  if(!use.length)return toast('هیچ برگه‌ای انتخاب نشده');
+  if(use.some(s=>!sheetDates(s)))return toast('تاریخ یکی از برگه‌ها درست نیست');
+  let r;
+  $('#xlGo').disabled=true;
+  const ok=await act(()=>commit(d=>{
+    r={h:0,add:0,upd:0,same:0,conf:[]};const now=new Date().toISOString();
+    const byKey=new Map(d.heyats.map(h=>[hKey(h.name,h.phone,h.rep),h]));
+    for(const sh of use){const dates=sheetDates(sh);
+      for(const it of sh.items){
+        const k=hKey(it.name,it.phone,it.rep);let h=byKey.get(k);
+        if(!h){let id=hid(k);while(d.heyats.some(x=>x.id===id))id+='x';h={id,name:it.name,rep:it.rep,phone:it.phone,ref:it.ref,note:''};d.heyats.push(h);byKey.set(k,h);r.h++}
+        else{if(!h.rep&&it.rep)h.rep=it.rep;if(!h.phone&&it.phone)h.phone=it.phone;if(it.ref)h.ref=it.ref}
+        let code=it.code;
+        it.q.forEach((q,i)=>{
+          if(!q)return;const date=dates[i];if(skip&&date<t)return;
+          if(!code)code=heyatCode(h.id,d)||newCode(d);
+          const ex=d.allocs.find(a=>a.heyatId===h.id&&a.date===date&&a.status!=='cancelled'&&(a.code===code||!it.code));
+          if(ex){if(ex.status==='pending'&&(Number(ex.qty)!==q||(it.time&&ex.time!==it.time))){ex.qty=q;if(it.time){ex.time=it.time;ex.timeEnd=it.timeEnd}r.upd++}else r.same++;return}
+          if(codeTaken(code,h.id,null,d)){r.conf.push(it.name);return}
+          d.allocs.push({id:uid(),heyatId:h.id,heyat:h.name,rep:h.rep,phone:h.phone,ref:h.ref,date,time:it.time||'19:00',timeEnd:it.timeEnd||'',qty:q,code,note:'',status:'pending',deliveredQty:null,deliveredAt:'',deliveredBy:'',createdAt:now,createdBy:CFG.name||''});r.add++;
+        });
+      }
+    }
+    logEntry(d,'import',`بارگذاری اکسل «${IMP.file}»: ${fa(r.h)} هیئت جدید، ${fa(r.add)} نوبت جدید${r.upd?'، '+fa(r.upd)+' نوبت به‌روز شد':''}`);
+  },'excel import'));
+  if(ok){IMP.sheets=null;$('#xlFile').value='';
+    $('#xlPreview').innerHTML=`<div class="banner" style="background:color-mix(in srgb,var(--ok) 14%,transparent)"><b>وارد شد ✓</b> — ${fa(r.h)} هیئت جدید، ${fa(r.add)} نوبت جدید${r.upd?'، '+fa(r.upd)+' نوبت به‌روز شد':''}${r.same?'، '+fa(r.same)+' نوبت از قبل بود':''}.${r.conf.length?'<br><b>وارد نشد (کد تکراری با هیئت دیگر):</b> '+esc([...new Set(r.conf)].join('، ')):''}</div>`;
+    S.openDays=null;render()}
+  else if($('#xlGo'))$('#xlGo').disabled=false;
+}
+async function sampleExcel(){
+  try{await loadXLSX()}catch(e){return toast(e.message)}
+  const p=jParts(addDays(todayISO(),1));const days=[0,1,2].map(i=>jParts(addDays(todayISO(),1+i)).day);
+  const aoa=[['تاریخ اولین ستون',p.year+'/'+pad(p.month)+'/'+pad(p.day)],['ردیف','هیئت','مسئول هیئت','شماره تماس','معرف',...days,'ساعت تحویل','کد تحویل'],
+    [1,'مسجد صاحب الزمان (عج)','آقای عقبایی','09120000000','حاج احمد',200,200,'','16الی16:15',405135262],[2,'هیئت نمونه','آقای نمونه','09350000000','','',350,350,'19:30الی19:45','']];
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(aoa),'نوبت‌ها');XLSX.writeFile(wb,'mozif-sample.xlsx');
+}
 function renderReport(){
   const from=addDays(todayISO(),-60);
   const agg={};allocs().filter(a=>active(a)&&a.date>=from).forEach(a=>{const r=agg[a.heyat]=agg[a.heyat]||{n:0,alloc:0,deliv:0,miss:0};r.n++;r.alloc+=Number(a.qty);if(a.status==='delivered')r.deliv+=Number(a.deliveredQty??a.qty);else if(a.date<todayISO())r.miss++});
@@ -294,34 +547,42 @@ function startEdit(id){
   const a=allocs().find(x=>x.id===id);if(!a)return;
   S.editingId=id;setView('plan');
   fillDateSelect($('#fDate'),S.date,a.date);
-  $('#fHeyat').value=a.heyat;$('#fRep').value=a.rep||'';$('#fPhone').value=a.phone||'';$('#fTime').value=a.time||'19:00';$('#fQty').value=a.qty;$('#fCode').value=a.code;$('#fNote').value=a.note||'';
+  $('#fHeyat').value=a.heyat;$('#fRep').value=a.rep||'';$('#fPhone').value=a.phone||'';$('#fRef').value=a.ref||'';$('#fTime').value=a.time||'19:00';$('#fTimeEnd').value=a.timeEnd||'';$('#fQty').value=a.qty;$('#fCode').value=a.code;$('#fNote').value=a.note||'';S.formHeyatId=a.heyatId||null;
   $('#formTitle').textContent='ویرایش نوبت '+a.heyat;$('#fSave').textContent='ذخیره تغییرات';$('#formReset').hidden=false;capHint();
   $('#planForm').scrollIntoView({behavior:'smooth',block:'start'});
 }
 function resetForm(){
-  S.editingId=null;$('#planForm').reset();$('#fTime').value='19:00';fillDateSelect($('#fDate'),S.date,S.date);$('#fCode').value=newCode();
+  S.editingId=null;S.formHeyatId=null;$('#planForm').reset();$('#fTime').value='19:00';fillDateSelect($('#fDate'),S.date,S.date);$('#fCode').value=newCode();
   $('#formTitle').textContent='نوبت جدید برای هیئت';$('#fSave').textContent='ثبت نوبت و ساخت کد';$('#formReset').hidden=true;capHint();
 }
 async function saveForm(e){
   e.preventDefault();
-  const a={heyat:$('#fHeyat').value.trim(),rep:$('#fRep').value.trim(),phone:en($('#fPhone').value.trim()),date:$('#fDate').value,time:$('#fTime').value||'19:00',qty:toInt($('#fQty').value),code:en($('#fCode').value.trim()),note:$('#fNote').value.trim()};
+  const a={heyat:$('#fHeyat').value.trim(),rep:$('#fRep').value.trim(),phone:normPhone($('#fPhone').value),ref:$('#fRef').value.trim(),date:$('#fDate').value,time:$('#fTime').value||'19:00',timeEnd:$('#fTimeEnd').value||'',qty:toInt($('#fQty').value),code:en($('#fCode').value.trim()),note:$('#fNote').value.trim()};
   if(!a.heyat)return toast('نام هیئت را وارد کنید');
   if(a.qty<=0)return toast('تعداد پرس را وارد کنید');
-  if(!/^\d{4,6}$/.test(a.code))return toast('کد باید ۴ تا ۶ رقم باشد');
-  const editing=S.editingId;
+  if(!/^\d{4,12}$/.test(a.code))return toast('کد باید ۴ تا ۱۲ رقم باشد');
+  if(a.timeEnd&&a.timeEnd<=a.time)return toast('پایان بازه تحویل باید بعد از شروع آن باشد');
+  const editing=S.editingId,pickId=S.formHeyatId;let hId;
   $('#fSave').disabled=true;
   const ok=await act(()=>commit(d=>{
-    if(usedCodes(editing,d).has(a.code))throw new Error('این کد الان برای هیئت دیگری فعال است. «کد تازه» را بزنید');
-    if(editing){const x=findIn(d,editing);if(!x)throw new Error('این نوبت دیگر وجود ندارد');Object.assign(x,a);logEntry(d,'edit',`ویرایش نوبت ${a.heyat}: ${fa(a.qty)} پرس، ${dShort(a.date)} ساعت ${faDig(a.time)}`,editing)}
-    else{const id=uid();d.allocs.push({id,...a,status:'pending',deliveredQty:null,deliveredAt:'',deliveredBy:'',createdAt:new Date().toISOString(),createdBy:CFG.name||''});logEntry(d,'create',`نوبت جدید: ${a.heyat}، ${fa(a.qty)} پرس، ${dShort(a.date)} ساعت ${faDig(a.time)}، کد ${faDig(a.code)}`,id)}
+    const x=editing?findIn(d,editing):null;if(editing&&!x)throw new Error('این نوبت دیگر وجود ندارد');
+    const k=hKey(a.heyat,a.phone,a.rep);
+    let h=x?d.heyats.find(q=>q.id===x.heyatId):(d.heyats.find(q=>q.id===pickId&&norm(q.name)===norm(a.heyat))||d.heyats.find(q=>hKey(q.name,q.phone,q.rep)===k));
+    if(!h){let id=hid(k);while(d.heyats.some(q=>q.id===id))id+='x';h={id,name:a.heyat,rep:a.rep,phone:a.phone,ref:a.ref,note:''};d.heyats.push(h)}
+    else{Object.assign(h,editing?{name:a.heyat,rep:a.rep,phone:a.phone,ref:a.ref}:{name:a.heyat,rep:a.rep||h.rep,phone:a.phone||h.phone,ref:a.ref||h.ref});
+      d.allocs.forEach(o=>{if(o.heyatId===h.id)Object.assign(o,{heyat:h.name,rep:h.rep,phone:h.phone,ref:h.ref})})}
+    Object.assign(a,{heyatId:h.id,rep:h.rep,phone:h.phone,ref:h.ref});hId=h.id;
+    if(codeTaken(a.code,h.id,editing,d))throw new Error('این کد الان برای هیئت دیگری فعال است. «کد تازه» را بزنید');
+    if(editing){Object.assign(x,a);logEntry(d,'edit',`ویرایش نوبت ${a.heyat}: ${fa(a.qty)} پرس، ${dShort(a.date)} ساعت ${tWin(a)}`,editing)}
+    else{const id=uid();d.allocs.push({id,...a,status:'pending',deliveredQty:null,deliveredAt:'',deliveredBy:'',createdAt:new Date().toISOString(),createdBy:CFG.name||''});logEntry(d,'create',`نوبت جدید: ${a.heyat}، ${fa(a.qty)} پرس، ${dShort(a.date)} ساعت ${tWin(a)}، کد ${faDig(a.code)}${a.ref?'، معرف '+a.ref:''}`,id)}
   },(editing?'edit ':'new ')+a.heyat),editing?'ذخیره شد':'نوبت ثبت شد');
   $('#fSave').disabled=false;
-  if(ok){S.lastShare=shareText(a);resetForm();render();$('#shareBox').scrollIntoView({behavior:'smooth',block:'center'})}
+  if(ok){S.lastShare={heyatId:hId,code:a.code};(S.openDays=S.openDays||new Set()).add(a.date);resetForm();render();$('#shareBox').scrollIntoView({behavior:'smooth',block:'center'})}
 }
 function csv(list){
   const st={pending:'در انتظار',delivered:'تحویل شده',cancelled:'لغو'};
-  const head=['تاریخ','روز','ساعت','هیئت','نماینده','تلفن','سهم','تحویلی','وضعیت','کد','زمان تحویل','ثبت توسط','توضیح'];
-  const rows=list.map(a=>[a.date,dShort(a.date),a.time,a.heyat,a.rep,a.phone,a.qty,a.status==='delivered'?(a.deliveredQty??a.qty):'',st[a.status]||a.status,a.code,a.deliveredAt?fStamp.format(new Date(a.deliveredAt)):'',a.deliveredBy,a.note]);
+  const head=['تاریخ','روز','ساعت','هیئت','نماینده','تلفن','معرف','سهم','تحویلی','وضعیت','کد','زمان تحویل','ثبت توسط','توضیح'];
+  const rows=list.map(a=>[jNum(a.date),dShort(a.date),en(tWin(a)),a.heyat,a.rep,a.phone,a.ref||'',a.qty,a.status==='delivered'?(a.deliveredQty??a.qty):'',st[a.status]||a.status,a.code,a.deliveredAt?fStamp.format(new Date(a.deliveredAt)):'',a.deliveredBy,a.note]);
   return '﻿'+[head,...rows].map(r=>r.map(v=>{v=String(v??'');return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v}).join(',')).join('\r\n');
 }
 function exportCsv(list,name){
@@ -336,7 +597,7 @@ $('#dSel').addEventListener('change',e=>setDate(e.target.value));
 $('#dPrev').addEventListener('click',()=>setDate(addDays(S.date,-1)));
 $('#dNext').addEventListener('click',()=>setDate(addDays(S.date,1)));
 const doLookup=()=>{S.lookup=en($('#codeIn').value).replace(/\D/g,'');render()};
-$('#codeIn').addEventListener('input',e=>{const v=en(e.target.value).replace(/\D/g,'');e.target.value=v;if(v.length>=4)doLookup();else if(S.lookup){S.lookup='';render()}});
+$('#codeIn').addEventListener('input',e=>{const v=en(e.target.value).replace(/\D/g,'');e.target.value=v;if(v.length>=4&&allocs().some(a=>a.code===v&&active(a)))doLookup();else if(S.lookup){S.lookup='';render()}});
 $('#codeIn').addEventListener('keydown',e=>{if(e.key==='Enter')doLookup()});
 $('#codeGo').addEventListener('click',doLookup);
 $('#codeClear').addEventListener('click',()=>{$('#codeIn').value='';S.lookup='';render();$('#codeIn').focus()});
@@ -372,28 +633,62 @@ document.addEventListener('click',async e=>{
   const st=e.target.closest('[data-step]');
   if(st){const i=$('#dQty');i.value=Math.max(0,toInt(i.value)+Number(st.dataset.step));return}
   if(e.target.id==='closeShare'){S.lastShare=null;render();return}
-  if(e.target.id==='copyShare'){try{await navigator.clipboard.writeText(S.lastShare);toast('کپی شد')}catch(_){const r=document.createRange();r.selectNodeContents($('#shareText'));const s=getSelection();s.removeAllRanges();s.addRange(r);toast('متن انتخاب شد؛ کپی کنید')}return}
   const b=e.target.closest('[data-act]');if(!b)return;
   const id=b.dataset.id,a=allocs().find(x=>x.id===id),actn=b.dataset.act;if(!a)return;
   if(actn==='deliver'){const q=toInt($('#dQty')?.value);if(q>Number(a.qty))return armed(b,`بیشتر از سهم (${fa(a.qty)})! برای تأیید دوباره بزنید`,()=>deliver(id,q));if(a.date!==todayISO())return armed(b,'نوبت امروز نیست. مطمئنید؟ دوباره بزنید',()=>deliver(id,q));b.disabled=true;await deliver(id,q);b.disabled=false;return}
   if(actn==='quick')return armed(b,`تحویل ${fa(a.qty)} پرس به ${a.heyat}؟ دوباره بزنید`,()=>deliver(id,Number(a.qty)));
   if(actn==='undo')return armed(b,'برگرداندن تحویل؟ دوباره بزنید',()=>patchAlloc(id,{status:'pending',deliveredQty:null,deliveredAt:'',deliveredBy:''},x=>`برگشت تحویل ${x.heyat}`,'تحویل برگردانده شد',x=>{if(x.status!=='delivered')throw new Error('این نوبت تحویل‌شده نیست')}));
   if(actn==='cancel')return armed(b,'لغو نوبت؟ دوباره بزنید',()=>patchAlloc(id,{status:'cancelled'},x=>`لغو نوبت ${x.heyat} (${fa(x.qty)} پرس)`,'نوبت لغو شد',x=>{if(x.status==='delivered')throw new Error('این نوبت تحویل شده؛ اول تحویل را برگردانید')}));
-  if(actn==='restore')return patchAlloc(id,{status:'pending'},x=>`برگشت نوبت ${x.heyat}`,'نوبت برگشت',(x,d)=>{if(usedCodes(id,d).has(x.code))throw new Error('کد این نوبت الان دست هیئت دیگری است؛ اول ویرایشش کنید')});
+  if(actn==='restore')return patchAlloc(id,{status:'pending'},x=>`برگشت نوبت ${x.heyat}`,'نوبت برگشت',(x,d)=>{if(codeTaken(x.code,x.heyatId,id,d))throw new Error('کد این نوبت الان دست هیئت دیگری است؛ اول ویرایشش کنید')});
   if(actn==='edit')return startEdit(id);
 });
 $('#planForm').addEventListener('submit',saveForm);
 $('#formReset').addEventListener('click',resetForm);
-$('#fRegen').addEventListener('click',()=>{$('#fCode').value=newCode(S.editingId)});
+$('#fRegen').addEventListener('click',()=>{$('#fCode').value=newCode()});
 ['fDate','fQty'].forEach(k=>$('#'+k).addEventListener('input',capHint));
 $('#fDate').addEventListener('change',capHint);
 $('#fHeyat').addEventListener('change',()=>{
-  if(S.editingId)return;const n=$('#fHeyat').value.trim();
-  const last=allocs().filter(a=>a.heyat===n).sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time))[0];
-  if(last){if(!$('#fRep').value)$('#fRep').value=last.rep||'';if(!$('#fPhone').value)$('#fPhone').value=last.phone||'';if(!$('#fQty').value)$('#fQty').value=last.qty;$('#fTime').value=last.time||'19:00';capHint()}
+  if(S.editingId)return;const n=norm($('#fHeyat').value);const m=heyats().filter(h=>norm(h.name)===n);S.formHeyatId=null;
+  if(m.length===1)bookFor(m[0],true);else if(m.length>1)toast('چند هیئت با این نام هست؛ از «دفتر» انتخاب کنید یا شماره را وارد کنید');
 });
 $('#expDay').addEventListener('click',()=>exportCsv(forDay(S.date),'mozif-'+S.date+'.csv'));
 $('#expAll').addEventListener('click',()=>exportCsv(allocs().slice().sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time)),'mozif-all.csv'));
+
+/* directory, messages, Excel import, message template */
+function markSent(hId,code){
+  if(!CFG)return;const ids=msgGroup(hId,code).filter(a=>!a.msgAt).map(a=>a.id);if(!ids.length)return;
+  commit(d=>{const now=new Date().toISOString();d.allocs.forEach(a=>{if(ids.includes(a.id))a.msgAt=now})},'message sent').catch(()=>{});
+}
+document.addEventListener('click',async e=>{
+  const dt=e.target.closest('[data-daytog]');
+  if(dt){const d=dt.dataset.daytog;S.openDays.has(d)?S.openDays.delete(d):S.openDays.add(d);renderPlan();return}
+  const hb=e.target.closest('[data-hact]');if(!hb)return;
+  const k=hb.dataset.hact;
+  if(k==='ref'){S.dirTab='ref';$('#dirQ').value=hb.dataset.ref;renderDir();window.scrollTo(0,0);return}
+  if(k==='find'){S.dirTab='heyat';$('#dirQ').value=hb.dataset.q;renderDir();window.scrollTo(0,0);return}
+  const h=heyatById(hb.dataset.id);if(!h)return;
+  if(k==='book')return bookFor(h);
+  if(k==='edit')return editHeyat(h);
+  if(k==='del')return armed(hb,'حذف شود؟ دوباره بزنید',()=>act(()=>commit(d=>{if(d.allocs.some(a=>a.heyatId===h.id))throw new Error('این هیئت نوبت دارد و حذف نمی‌شود');d.heyats=d.heyats.filter(x=>x.id!==h.id);logEntry(d,'heyat','حذف '+h.name)},'delete heyat'),'حذف شد'));
+  if(k==='copy'){const txt=buildMsg(h.id,hb.dataset.code);try{await navigator.clipboard.writeText(txt);toast('متن پیام کپی شد')}catch(_){toast('کپی نشد؛ متن را دستی انتخاب کنید');return}markSent(h.id,hb.dataset.code);return}
+  if(k==='sent')markSent(h.id,hb.dataset.code); // the link itself opens WhatsApp / SMS
+});
+$('#dirQ').addEventListener('input',renderDir);
+$('#dirTabs').addEventListener('click',e=>{const b=e.target.closest('button[data-t]');if(b){S.dirTab=b.dataset.t;renderDir()}});
+$('#hForm').addEventListener('submit',saveHeyat);
+$('#hCancel').addEventListener('click',()=>editHeyat(null));
+$('#xlFile').addEventListener('change',async e=>{
+  const f=e.target.files[0];if(!f)return;$('#xlPreview').innerHTML='<div class="banner warn">در حال خواندن فایل…</div>';
+  try{await readExcel(f);renderImp()}catch(err){IMP.sheets=null;$('#xlPreview').innerHTML='<div class="banner bad">'+esc(err.message||'فایل خوانده نشد')+'</div>'}
+});
+$('#xlSample').addEventListener('click',sampleExcel);
+$('#xlPreview').addEventListener('change',e=>{
+  const k=e.target.dataset.imp;if(k&&IMP.sheets){const sh=IMP.sheets[+e.target.dataset.si];if(k==='on')sh.on=e.target.checked;else{sh[k]=toInt(e.target.value);sh.guessed=false}}
+  if(IMP.sheets)renderImp();
+});
+$('#xlPreview').addEventListener('click',e=>{if(e.target.id==='xlGo')doImport();if(e.target.id==='xlCancel'){IMP.sheets=null;$('#xlFile').value='';renderImp()}});
+$('#tplSave').addEventListener('click',()=>{const v=$('#tplIn').value.trim();if(!v)return toast('متن پیام خالی است');act(()=>commit(d=>{d.settings=d.settings||{};d.settings.msgTpl=v;logEntry(d,'tpl','متن پیام هیئت‌ها تغییر کرد')},'message template'),'متن پیام ذخیره شد')});
+$('#tplReset').addEventListener('click',e=>armed(e.target,'به متن اولیه برگردد؟ دوباره بزنید',()=>act(()=>commit(d=>{d.settings=d.settings||{};delete d.settings.msgTpl},'message template reset'),'به متن اولیه برگشت').then(ok=>{if(ok)$('#tplIn').value=DEFAULT_TPL})));
 
 /* settings */
 $('#cfgForm').addEventListener('submit',async e=>{
@@ -415,7 +710,7 @@ $('#cfgForm').addEventListener('submit',async e=>{
   }catch(err){CFG=old;msg.innerHTML='<div class="banner bad">'+esc(err.message||'اتصال برقرار نشد')+'</div>'}
   finally{$('#cSave').disabled=false}
 });
-$('#cForget').addEventListener('click',e=>armed(e.target,'توکن از این گوشی پاک شود؟ دوباره بزنید',()=>{ls.del('mozif-cfg');ls.del('mozif-cache');CFG=null;DATA=EMPTY();SHA=null;ETAG=null;setSync(false);setView('settings');toast('اتصال این دستگاه قطع شد')}));
+$('#cForget').addEventListener('click',e=>armed(e.target,'توکن از این گوشی پاک شود؟ دوباره بزنید',()=>{ls.del('mozif-cfg');ls.del('mozif-cache');CFG=null;DATA=EMPTY();S.openDays=null;SHA=null;ETAG=null;setSync(false);setView('settings');toast('اتصال این دستگاه قطع شد')}));
 
 /* ================= polling ================= */
 async function tick(){
@@ -424,7 +719,7 @@ async function tick(){
   catch(e){setSync(false,/fetch|network|Failed/i.test(e.message)?null:e.message)}
 }
 setInterval(tick,15000);
-setInterval(()=>{if(CFG&&online)setSync(true);if(S.view!=='plan'&&S.view!=='settings')render()},30000);
+setInterval(()=>{if(CFG&&online)setSync(true);if(S.view!=='plan'&&S.view!=='settings'&&S.view!=='dir')render()},30000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)tick()});
 window.addEventListener('online',tick);
 

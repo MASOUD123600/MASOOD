@@ -1,5 +1,5 @@
 // App shell cache. Data always comes live from GitHub and is never cached here.
-const CACHE='mozif-v4';
+const CACHE='mozif-v5';
 const SHELL=['./','index.html','app.js','manifest.webmanifest','icons/logo.webp','icons/logo-192.png',
  'fonts/vazirmatn-400.woff2','fonts/vazirmatn-500.woff2','fonts/vazirmatn-700.woff2','fonts/vazirmatn-800.woff2','fonts/aref-ruqaa-700.woff2'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)).then(()=>self.skipWaiting()))});
