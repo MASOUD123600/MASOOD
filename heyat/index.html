@@ -368,7 +368,7 @@ nav.bottom button[aria-current="page"]{color:var(--accent);font-weight:800}
       <h2>خروجی اکسل</h2>
       <div class="xbox">
         <h3>کل نوبت‌ها</h3>
-        <p class="muted" style="margin:0;font-size:13px">مثل فایل خودتان: هر چند روز پشت سر هم (مثل دهه اول و دوم) یک برگه، با ستون روزها، جمع هر روز، ساعت و کد تحویل؛ به‌اضافه برگه «پخت روزانه» و «دفتر هیئت‌ها».</p>
+        <p class="muted" style="margin:0;font-size:13px">هر چند روز پشت سر هم (مثلاً دهه اول و دهه دوم) یک برگه جدا، با ستون روزها، جمع هر روز، ساعت و کد تحویل. برگه «پخت روزانه» و «دفتر هیئت‌ها» هم در همین فایل است. با «از» و «تا» بازه تاریخ را انتخاب کنید.</p>
         <div class="grid2"><label class="f"><span>از</span><select id="xFrom"></select></label><label class="f"><span>تا</span><select id="xTo"></select></label></div>
         <button class="btn primary" id="expAll">دانلود اکسل کل نوبت‌ها</button>
       </div>
@@ -399,6 +399,7 @@ nav.bottom button[aria-current="page"]{color:var(--accent);font-weight:800}
       <button class="btn primary big" type="submit" id="cSave">اتصال و ذخیره</button>
       <div id="cMsg"></div>
       <button class="btn danger" type="button" id="cForget">قطع اتصال این دستگاه</button>
+      <p class="muted" style="margin:0;font-size:12px;text-align:center">نسخه برنامه: ۱۴۰۵/۰۸/۲۵ (خروجی اکسل جدید)</p>
     </form>
     <div class="card" style="display:flex;flex-direction:column;gap:10px">
       <h2>متن پیام برای هیئت‌ها</h2>
@@ -424,8 +425,8 @@ nav.bottom button[aria-current="page"]{color:var(--accent);font-weight:800}
 </div></nav>
 <div class="toast" id="toast" hidden></div>
 
-<script src="xlsxw.js"></script>
-<script src="app.js"></script>
+<script src="xlsxw.js?v=20261116b"></script>
+<script src="app.js?v=20261116b"></script>
 
 </body>
 </html>

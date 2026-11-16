@@ -726,6 +726,7 @@ const fileDate=d=>{const p=jParts(d);return p.year+'-'+pad(p.month)+'-'+pad(p.da
 function exportAll(){
   const from=$('#xFrom').value,to=$('#xTo').value;
   const list=allocs().filter(a=>active(a)&&(!from||a.date>=from)&&(!to||a.date<=to));
+  if(from&&to&&from>to)return toast('تاریخ «از» باید قبل از «تا» باشد');
   if(!list.length)return toast('در این بازه نوبتی نیست');
   const dates=[...new Set(list.map(a=>a.date))].sort();
   const sheets=dayBlocks(dates).map(b=>({...gridSheet(b,list.filter(a=>b.includes(a.date))),name:blockName(b)}));
@@ -737,11 +738,12 @@ function exportDay(){
   saveXlsx([daySheet(S.date)],`mozif-${fileDate(S.date)}.xlsx`);
 }
 function fillExportRange(){
-  const ds=[...new Set(allocs().filter(active).map(a=>a.date))].sort();
-  const opts=ds.map(d=>`<option value="${d}">${esc(dLong(d))} — ${jNum(d)}</option>`).join('');
-  const f=$('#xFrom'),t=$('#xTo'),fv=f.value,tv=t.value;
-  f.innerHTML='<option value="">از اولین روز</option>'+opts;t.innerHTML='<option value="">تا آخرین روز</option>'+opts;
-  if(ds.includes(fv))f.value=fv;if(ds.includes(tv))t.value=tv;
+  const ds=[...new Set(allocs().filter(active).map(a=>a.date))].sort(),has=new Set(ds),t=todayISO();
+  let a=ds[0]&&ds[0]<t?ds[0]:addDays(t,-7),b=ds.length&&ds[ds.length-1]>t?ds[ds.length-1]:addDays(t,30);
+  let opts='';for(let d=a;d<=b;d=addDays(d,1))opts+=`<option value="${d}">${jNum(d)} — ${esc(dLong(d))}${has.has(d)?' ●':''}</option>`;
+  const f=$('#xFrom'),e=$('#xTo'),fv=f.value,tv=e.value;
+  f.innerHTML='<option value="">از اولین نوبت</option>'+opts;e.innerHTML='<option value="">تا آخرین نوبت</option>'+opts;
+  if(fv)f.value=fv;if(tv)e.value=tv;
 }
 
 /* ================= events ================= */
