@@ -311,14 +311,43 @@ function renderBoard(st){
     const verdict=!st.hasProd?'<span class="chip mute">پخت ثبت نشده</span>':gap>0?`<span class="chip bad">کسری ${fa(gap)} پرس</span>`:`<span class="chip ok">کافی است · اضافه ${fa(-gap)}</span>`;
     return `<div class="hour ${st.hasProd&&gap>0?'short':''}"><span class="num"><b>${faDig(h)}:۰۰</b></span><div class="track" title="${fa(r.n)} هیئت"><i style="width:${r.done/mx*100}%;background:var(--ok)"></i><i style="width:${r.pend/mx*100}%;background:var(--saffron)"></i></div><span class="val">${fa(r.done+r.pend)} پرس · ${fa(r.n)} هیئت</span><div class="sum"><span>تا ساعت ${faDig(h)}: روی هم <b class="num">${fa(cum)}</b> پرس</span>${verdict}</div></div>`}).join(''):'<div class="empty">نوبتی ثبت نشده.</div>';
 }
+/* ---- several days in one booking ---- */
+function dayRowHTML(){return `<div class="drow"><select class="rDate" aria-label="روز تحویل"></select><input class="rQty" inputmode="numeric" placeholder="۲۵۰" aria-label="تعداد پرس"><button type="button" class="btn sm danger rDel" aria-label="حذف این روز">×</button></div>`}
+function setRows(list){
+  const box=$('#dayRows');box.innerHTML=list.map(dayRowHTML).join('');
+  [...box.querySelectorAll('.drow')].forEach((r,i)=>{fillDateSelect(r.querySelector('.rDate'),S.date,list[i].date);r.querySelector('.rQty').value=list[i].qty||''});
+  updRows();
+}
+function getRows(){return [...document.querySelectorAll('#dayRows .drow')].map(r=>({date:r.querySelector('.rDate').value,qty:toInt(r.querySelector('.rQty').value),el:r}))}
+function addRow(){
+  const rs=getRows(),last=rs[rs.length-1];
+  const box=$('#dayRows');box.insertAdjacentHTML('beforeend',dayRowHTML());const r=box.lastElementChild;
+  let d=last?addDays(last.date,1):S.date;while(rs.some(x=>x.date===d))d=addDays(d,1);
+  fillDateSelect(r.querySelector('.rDate'),S.date,d);r.querySelector('.rQty').value=last&&last.qty?last.qty:'';
+  updRows();r.querySelector('.rQty').focus();
+}
+function sortRows(){const rs=getRows().sort((a,b)=>a.date.localeCompare(b.date));const box=$('#dayRows');rs.forEach(x=>box.appendChild(x.el))}
+function updRows(){
+  const rs=getRows();
+  document.querySelectorAll('#dayRows .rDel').forEach(b=>b.hidden=rs.length<2);
+  $('#addDay').hidden=!!S.editingId;
+  const tot=rs.reduce((s,x)=>s+x.qty,0);
+  $('#dayTotal').textContent=rs.length>1?`${fa(rs.length)} روز · جمع ${fa(tot)} پرس`:'';
+  capHint();
+}
 function capHint(){
-  const d=$('#fDate').value;if(!d)return;
-  const st=dayStats(d);const ex=S.editingId?allocs().find(a=>a.id===S.editingId):null;
-  const used=st.alloc-(ex&&ex.date===d&&active(ex)?Number(ex.qty):0);const q=toInt($('#fQty').value);
-  const el=$('#capHint');
-  if(!st.hasProd){el.className='cap';el.innerHTML=`پخت ${esc(dLong(d))} هنوز ثبت نشده · تا الان ${fa(used)} پرس به ${fa(st.n)} هیئت تعهد شده.`;return}
-  const after=st.prod-st.staffQty-used-q;el.className='cap'+(after<0?' neg':'');
-  el.innerHTML=`پخت ${esc(dShort(d))}: <b class="num">${fa(st.prod)}</b>${st.staffQty?' · نیروها: <b class="num">'+fa(st.staffQty)+'</b>':''} · تعهد شده: <b class="num">${fa(used)}</b> · ${after<0?'بعد از این نوبت <b>کسری '+fa(-after)+'</b> پرس':'بعد از این نوبت آزاد می‌ماند: <b class="num">'+fa(after)+'</b>'}`;
+  const rs=getRows().filter(x=>x.date);const el=$('#capHint');if(!rs.length){el.innerHTML='';return}
+  const ex=S.editingId?allocs().find(a=>a.id===S.editingId):null;
+  let bad=false;
+  const lines=rs.map(x=>{const d=x.date,st=dayStats(d);
+    const used=st.alloc-(ex&&ex.date===d&&active(ex)?Number(ex.qty):0);
+    const mine=rs.filter(y=>y.date===d).reduce((s,y)=>s+y.qty,0);
+    const pre=rs.length>1?`<b>${esc(dShort(d))}:</b> `:'';
+    if(rs.filter(y=>y.date===d).length>1){bad=true;return pre+'<b>این روز دو بار انتخاب شده</b>'}
+    if(!st.hasProd)return pre+`پخت ${esc(dLong(d))} هنوز ثبت نشده · تا الان ${fa(used)} پرس به ${fa(st.n)} هیئت تعهد شده.`;
+    const after=st.prod-st.staffQty-used-mine;if(after<0)bad=true;
+    return pre+`پخت <b class="num">${fa(st.prod)}</b>${st.staffQty?' · نیروها <b class="num">'+fa(st.staffQty)+'</b>':''} · تعهد شده <b class="num">${fa(used)}</b> · ${after<0?'بعد از این نوبت <b>کسری '+fa(-after)+'</b> پرس':'بعد از این نوبت آزاد می‌ماند <b class="num">'+fa(after)+'</b>'}`});
+  el.className='cap'+(bad?' neg':'');el.innerHTML=lines.join('<br>');
 }
 function renderPlan(){
   $('#heyatList').innerHTML=[...new Set(heyats().map(h=>h.name))].sort((a,b)=>a.localeCompare(b,'fa')).map(n=>`<option value="${esc(n)}"></option>`).join('');
@@ -406,7 +435,7 @@ function bookFor(h,keepDate){
   if(!keepDate){setView('plan');resetForm()}
   $('#fHeyat').value=h.name;$('#fRep').value=h.rep||'';$('#fPhone').value=h.phone||'';$('#fRef').value=h.ref||'';
   const last=allocs().filter(a=>a.heyatId===h.id).sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time))[0];
-  if(last){if(!$('#fQty').value)$('#fQty').value=last.qty;$('#fTime').value=last.time||'19:00';$('#fTimeEnd').value=last.timeEnd||''}
+  if(last){const q0=document.querySelector('#dayRows .rQty');if(q0&&!q0.value){q0.value=last.qty;updRows()}$('#fTime').value=last.time||'19:00';$('#fTimeEnd').value=last.timeEnd||''}
   const c=heyatCode(h.id);if(c)$('#fCode').value=c;
   S.formHeyatId=h.id;capHint();
   if(!keepDate)$('#planForm').scrollIntoView({behavior:'smooth',block:'start'});
@@ -561,20 +590,24 @@ function patchAlloc(id,patch,text,okMsg,check){
 function startEdit(id){
   const a=allocs().find(x=>x.id===id);if(!a)return;
   S.editingId=id;setView('plan');
-  fillDateSelect($('#fDate'),S.date,a.date);
-  $('#fHeyat').value=a.heyat;$('#fRep').value=a.rep||'';$('#fPhone').value=a.phone||'';$('#fRef').value=a.ref||'';$('#fTime').value=a.time||'19:00';$('#fTimeEnd').value=a.timeEnd||'';$('#fQty').value=a.qty;$('#fCode').value=a.code;$('#fNote').value=a.note||'';S.formHeyatId=a.heyatId||null;
-  $('#formTitle').textContent='ویرایش نوبت '+a.heyat;$('#fSave').textContent='ذخیره تغییرات';$('#formReset').hidden=false;capHint();
+  $('#fHeyat').value=a.heyat;$('#fRep').value=a.rep||'';$('#fPhone').value=a.phone||'';$('#fRef').value=a.ref||'';$('#fTime').value=a.time||'19:00';$('#fTimeEnd').value=a.timeEnd||'';$('#fCode').value=a.code;$('#fNote').value=a.note||'';S.formHeyatId=a.heyatId||null;
+  setRows([{date:a.date,qty:a.qty}]);
+  $('#formTitle').textContent='ویرایش نوبت '+a.heyat;$('#fSave').textContent='ذخیره تغییرات';$('#formReset').hidden=false;updRows();
   $('#planForm').scrollIntoView({behavior:'smooth',block:'start'});
 }
 function resetForm(){
-  S.editingId=null;S.formHeyatId=null;$('#planForm').reset();$('#fTime').value='19:00';fillDateSelect($('#fDate'),S.date,S.date);$('#fCode').value=newCode();
-  $('#formTitle').textContent='نوبت جدید برای هیئت';$('#fSave').textContent='ثبت نوبت و ساخت کد';$('#formReset').hidden=true;capHint();
+  S.editingId=null;S.formHeyatId=null;$('#planForm').reset();$('#fTime').value='19:00';setRows([{date:S.date,qty:''}]);$('#fCode').value=newCode();
+  $('#formTitle').textContent='نوبت جدید برای هیئت';$('#fSave').textContent='ثبت نوبت و ساخت کد';$('#formReset').hidden=true;updRows();
 }
 async function saveForm(e){
   e.preventDefault();
-  const a={heyat:$('#fHeyat').value.trim(),rep:$('#fRep').value.trim(),phone:normPhone($('#fPhone').value),ref:$('#fRef').value.trim(),date:$('#fDate').value,time:$('#fTime').value||'19:00',timeEnd:$('#fTimeEnd').value||'',qty:toInt($('#fQty').value),code:en($('#fCode').value.trim()),note:$('#fNote').value.trim()};
+  sortRows();
+  const rows=getRows().map(({date,qty})=>({date,qty}));
+  const a={heyat:$('#fHeyat').value.trim(),rep:$('#fRep').value.trim(),phone:normPhone($('#fPhone').value),ref:$('#fRef').value.trim(),time:$('#fTime').value||'19:00',timeEnd:$('#fTimeEnd').value||'',code:en($('#fCode').value.trim()),note:$('#fNote').value.trim()};
   if(!a.heyat)return toast('نام هیئت را وارد کنید');
-  if(a.qty<=0)return toast('تعداد پرس را وارد کنید');
+  if(!rows.length||rows.some(r=>!r.date))return toast('روز تحویل را انتخاب کنید');
+  if(rows.some(r=>r.qty<=0))return toast('تعداد پرس هر روز را وارد کنید');
+  if(new Set(rows.map(r=>r.date)).size!==rows.length)return toast('یک روز دو بار انتخاب شده است');
   if(!/^\d{4,12}$/.test(a.code))return toast('کد باید ۴ تا ۱۲ رقم باشد');
   if(a.timeEnd&&a.timeEnd<=a.time)return toast('پایان بازه تحویل باید بعد از شروع آن باشد');
   const editing=S.editingId,pickId=S.formHeyatId;let hId;
@@ -588,11 +621,15 @@ async function saveForm(e){
       d.allocs.forEach(o=>{if(o.heyatId===h.id)Object.assign(o,{heyat:h.name,rep:h.rep,phone:h.phone,ref:h.ref})})}
     Object.assign(a,{heyatId:h.id,rep:h.rep,phone:h.phone,ref:h.ref});hId=h.id;
     if(codeTaken(a.code,h.id,editing,d))throw new Error('این کد الان برای هیئت دیگری فعال است. «کد تازه» را بزنید');
-    if(editing){Object.assign(x,a);logEntry(d,'edit',`ویرایش نوبت ${a.heyat}: ${fa(a.qty)} پرس، ${dShort(a.date)} ساعت ${tWin(a)}`,editing)}
-    else{const id=uid();d.allocs.push({id,...a,status:'pending',deliveredQty:null,deliveredAt:'',deliveredBy:'',createdAt:new Date().toISOString(),createdBy:CFG.name||''});logEntry(d,'create',`نوبت جدید: ${a.heyat}، ${fa(a.qty)} پرس، ${dShort(a.date)} ساعت ${tWin(a)}، کد ${faDig(a.code)}${a.ref?'، معرف '+a.ref:''}`,id)}
-  },(editing?'edit ':'new ')+a.heyat),editing?'ذخیره شد':'نوبت ثبت شد');
+    const dup=rows.find(r=>d.allocs.some(o=>o.heyatId===h.id&&o.date===r.date&&o.status!=='cancelled'&&o.id!==editing));
+    if(dup)throw new Error(`این هیئت برای ${dLong(dup.date)} قبلاً نوبت دارد؛ آن نوبت را ویرایش کنید`);
+    if(editing){Object.assign(x,a,rows[0]);logEntry(d,'edit',`ویرایش نوبت ${a.heyat}: ${fa(rows[0].qty)} پرس، ${dShort(rows[0].date)} ساعت ${tWin(a)}`,editing)}
+    else{const now=new Date().toISOString();
+      rows.forEach(r=>d.allocs.push({id:uid(),...a,date:r.date,qty:r.qty,status:'pending',deliveredQty:null,deliveredAt:'',deliveredBy:'',createdAt:now,createdBy:CFG.name||''}));
+      logEntry(d,'create',`نوبت جدید: ${a.heyat}، ${rows.map(r=>dShort(r.date)+' '+fa(r.qty)+' پرس').join('، ')}، ساعت ${tWin(a)}، کد ${faDig(a.code)}${a.ref?'، معرف '+a.ref:''}`)}
+  },(editing?'edit ':'new ')+a.heyat),editing?'ذخیره شد':(rows.length>1?`نوبت ${fa(rows.length)} روز ثبت شد`:'نوبت ثبت شد'));
   $('#fSave').disabled=false;
-  if(ok){S.lastShare={heyatId:hId,code:a.code};(S.openDays=S.openDays||new Set()).add(a.date);resetForm();render();$('#shareBox').scrollIntoView({behavior:'smooth',block:'center'})}
+  if(ok){S.lastShare={heyatId:hId,code:a.code};S.openDays=S.openDays||new Set();rows.forEach(r=>S.openDays.add(r.date));resetForm();render();$('#shareBox').scrollIntoView({behavior:'smooth',block:'center'})}
 }
 /* ================= styled Excel export (same layout as the team's own sheets) ================= */
 const XS={
@@ -801,8 +838,10 @@ document.addEventListener('click',async e=>{
 $('#planForm').addEventListener('submit',saveForm);
 $('#formReset').addEventListener('click',resetForm);
 $('#fRegen').addEventListener('click',()=>{$('#fCode').value=newCode()});
-['fDate','fQty'].forEach(k=>$('#'+k).addEventListener('input',capHint));
-$('#fDate').addEventListener('change',capHint);
+$('#dayRows').addEventListener('input',updRows);
+$('#dayRows').addEventListener('change',e=>{if(e.target.classList.contains('rDate'))sortRows();updRows()});
+$('#dayRows').addEventListener('click',e=>{const b=e.target.closest('.rDel');if(b){b.closest('.drow').remove();updRows()}});
+$('#addDay').addEventListener('click',addRow);
 $('#fHeyat').addEventListener('change',()=>{
   if(S.editingId)return;const n=norm($('#fHeyat').value);const m=heyats().filter(h=>norm(h.name)===n);S.formHeyatId=null;
   if(m.length===1)bookFor(m[0],true);else if(m.length>1)toast('چند هیئت با این نام هست؛ از «دفتر» انتخاب کنید یا شماره را وارد کنید');
@@ -890,7 +929,7 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden)tick()});
 window.addEventListener('online',tick);
 
 /* ================= boot ================= */
-fillDateSelect($('#dSel'),S.date,S.date);fillDateSelect($('#fDate'),S.date,S.date);
+fillDateSelect($('#dSel'),S.date,S.date);setRows([{date:S.date,qty:''}]);
 fillDayInputs();
 const hv=(location.hash||'').slice(1);
 setView(!CFG?'settings':(VIEWS.includes(hv)?hv:'deliver'));

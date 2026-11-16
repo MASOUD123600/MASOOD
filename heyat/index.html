@@ -164,6 +164,13 @@ h3{font-size:14px;margin:0;font-weight:700}
 .cooktbl th,.cooktbl td{padding:7px 4px}
 .cooktbl td:first-child{white-space:normal}
 .hcard{display:flex;flex-direction:column;gap:10px}
+.dayrows{display:flex;flex-direction:column;gap:6px;border:1px solid var(--line);border-radius:12px;padding:10px}
+.drow{display:grid;grid-template-columns:minmax(0,1fr) 110px 40px;gap:8px;align-items:center}
+.drhead{font-size:13px;color:var(--muted);font-weight:500}
+#dayRows{display:flex;flex-direction:column;gap:8px}
+.drow .rQty{text-align:center;font-weight:700}
+.drow .rDel{padding:8px 0;width:40px}
+.drfoot{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px}
 .xbox{display:flex;flex-direction:column;gap:8px;border:1px solid var(--line);border-radius:12px;padding:12px}
 .selbox{display:flex;align-items:center;gap:10px;cursor:pointer;min-width:0}
 .selbox input{width:22px;height:22px;flex:none;accent-color:var(--bad)}
@@ -304,8 +311,11 @@ nav.bottom button[aria-current="page"]{color:var(--accent);font-weight:800}
         <datalist id="heyatList"></datalist>
         <label class="f"><span>نماینده</span><input id="fRep" placeholder="نام نماینده"></label>
         <label class="f"><span>تلفن</span><input id="fPhone" inputmode="tel" placeholder="۰۹۱۲…" style="direction:ltr;text-align:right"></label>
-        <label class="f"><span>روز تحویل</span><select id="fDate"></select></label>
-        <label class="f"><span>تعداد پرس</span><input id="fQty" inputmode="numeric" required placeholder="۲۵۰"></label>
+        <div class="full dayrows">
+          <div class="drow drhead"><span>روز تحویل</span><span>تعداد پرس</span><span></span></div>
+          <div id="dayRows"></div>
+          <div class="drfoot"><button type="button" class="btn sm" id="addDay">+ افزودن روز و تعداد غذای دیگر</button><span class="muted num" id="dayTotal"></span></div>
+        </div>
         <label class="f"><span>ساعت تحویل از</span><input id="fTime" type="time" value="19:00" style="direction:ltr"></label>
         <label class="f"><span>تا ساعت (اختیاری)</span><input id="fTimeEnd" type="time" style="direction:ltr"></label>
         <label class="f"><span>معرف (چه کسی معرفی کرده)</span><input id="fRef" list="refList" placeholder="نام معرف"></label>
@@ -425,8 +435,8 @@ nav.bottom button[aria-current="page"]{color:var(--accent);font-weight:800}
 </div></nav>
 <div class="toast" id="toast" hidden></div>
 
-<script src="xlsxw.js?v=20261116b"></script>
-<script src="app.js?v=20261116b"></script>
+<script src="xlsxw.js?v=20261116c"></script>
+<script src="app.js?v=20261116c"></script>
 
 </body>
 </html>
