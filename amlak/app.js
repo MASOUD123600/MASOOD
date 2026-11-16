@@ -1,0 +1,891 @@
+'use strict';
+/* سامانه املاک — اپ تک‌صفحه‌ای.
+   سه نوع کاربر: مشتری (بدون ورود، فقط مشاهده)، مشاور (آگهی‌های خودش)، ادمین (همه‌چیز).
+   داده‌ها در Supabase؛ اگر تنظیم نشده باشد «حالت نمایشی» با localStorage. */
+
+const CFG = window.AMLAK_CONFIG || {};
+const DEMO = !(CFG.supabaseUrl && CFG.supabaseKey);
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+
+/* ---------------- ثابت‌ها ---------------- */
+const PTYPES = { apartment: 'آپارتمان', villa: 'خانه ویلایی', land: 'زمین', commercial: 'مغازه / تجاری', office: 'اداری', garden: 'باغ / ویلا' };
+const STATUS = {
+  active: ['فعال', 'ok'], reserved: ['در حال معامله', 'warn'], sold: ['فروخته شد', 'bad'],
+  rented: ['اجاره رفت', 'bad'], hidden: ['مخفی', '']
+};
+const FEATURES = ['پارکینگ', 'آسانسور', 'انباری', 'بالکن', 'لابی', 'سرایدار', 'نوساز', 'سند تک‌برگ', 'استخر', 'سونا و جکوزی',
+  'روف گاردن', 'پکیج', 'شوفاژ', 'کولر گازی', 'مبله', 'قابل معاوضه', 'وام دار', 'دسترسی به مترو'];
+const SPACES = ['پذیرایی', 'آشپزخانه', 'اتاق خواب', 'سرویس و حمام', 'کل واحد', 'نما', 'تجاری / اداری'];
+const STYLES = ['مدرن', 'کلاسیک', 'نئوکلاسیک', 'مینیمال', 'روستیک', 'اسکاندیناوی', 'لاکچری'];
+const LEAD_ST = { new: ['جدید', 'warn'], contacted: ['تماس گرفته شد', 'ok'], closed: ['بسته شد', ''] };
+const ROLES = { admin: 'ادمین', agent: 'مشاور', pending: 'در انتظار تأیید' };
+
+/* ---------------- ابزارها ---------------- */
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fa = n => n == null || n === '' ? '' : Number(n).toLocaleString('fa-IR');
+const faStr = s => String(s ?? '').replace(/\d/g, d => '۰۱۲۳۴۵۶۷۸۹'[d]);
+const toNum = s => { const t = String(s ?? '').replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d)).replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[^\d]/g, ''); return t ? Number(t) : null; };
+function money(n, unit = true) {
+  if (n == null || n === '') return '—';
+  n = Number(n); if (!n) return 'توافقی';
+  const b = Math.floor(n / 1e9), m = Math.floor(n % 1e9 / 1e6), k = Math.floor(n % 1e6 / 1e3), p = [];
+  if (b) p.push(fa(b) + ' میلیارد');
+  if (m) p.push(fa(m) + ' میلیون');
+  if (!b && k) p.push(fa(k) + ' هزار');
+  if (!p.length) p.push(fa(n));
+  return p.join(' و ') + (unit ? ' تومان' : '');
+}
+function ago(d) {
+  const s = (Date.now() - new Date(d)) / 1000;
+  if (s < 3600) return 'دقایقی پیش';
+  if (s < 86400) return fa(Math.floor(s / 3600)) + ' ساعت پیش';
+  if (s < 86400 * 30) return fa(Math.floor(s / 86400)) + ' روز پیش';
+  return new Date(d).toLocaleDateString('fa-IR');
+}
+const toInt = s => { const n = toNum(s); return n != null && /^[^\d۰-۹٠-٩]*[-−]/.test(String(s)) ? -n : n; };
+const waPhone = p => { const d = String(toNum(p) ?? ''); return d.startsWith('0') ? '98' + d.slice(1) : d; };
+function toast(msg, ms = 2600) {
+  $('.toast')?.remove();
+  const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.append(t);
+  setTimeout(() => t.remove(), ms);
+}
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } }
+};
+
+const I = {
+  sale: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M10 21v-6h4v6"/></svg>',
+  rent: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="m10.8 12.2 8.7-8.7M17 6l2 2M15 8l2 2"/></svg>',
+  design: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16M6 20v-7a6 6 0 0 1 12 0v7"/><path d="M12 7V3M9 13h6"/></svg>',
+  heart: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-7.5-4.6-9.6-9.1C.9 8.6 3 4.5 6.9 4.5c2.1 0 3.6 1.2 5.1 3 1.5-1.8 3-3 5.1-3 3.9 0 6 4.1 4.5 7.4C19.5 16.4 12 21 12 21z"/></svg>',
+  heartO: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7.5-4.6-9.6-9.1C.9 8.6 3 4.5 6.9 4.5c2.1 0 3.6 1.2 5.1 3 1.5-1.8 3-3 5.1-3 3.9 0 6 4.1 4.5 7.4C19.5 16.4 12 21 12 21z"/></svg>',
+  user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
+  panel: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>',
+  back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 6 6 6-6 6"/></svg>',
+  filter: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M7 12h10M10 18h4"/></svg>',
+  phone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/></svg>',
+  chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>',
+  share: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></svg>',
+  plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+  empty: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="m9.5 13 5 5M14.5 13l-5 5"/></svg>'
+};
+
+/* تصویر جایگزین برای حالت نمایشی و آگهی بدون عکس */
+function placeholder(seed, label = '') {
+  const hues = [158, 32, 205, 12, 268, 95];
+  const h = hues[Math.abs(seed) % hues.length];
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="hsl(${h} 35% 78%)"/><stop offset="1" stop-color="hsl(${h + 20} 30% 58%)"/></linearGradient></defs><rect width="400" height="300" fill="url(#g)"/><rect y="230" width="400" height="70" fill="hsl(${h} 25% 45%)" opacity=".35"/><g fill="hsl(${h} 30% 96%)" opacity=".92"><path d="M110 230V140l90-60 90 60v90z"/></g><g fill="hsl(${h} 30% 50%)" opacity=".75"><rect x="135" y="160" width="40" height="34" rx="3"/><rect x="225" y="160" width="40" height="34" rx="3"/><rect x="185" y="185" width="30" height="45" rx="3"/></g><path d="M95 145 200 72l105 73" fill="none" stroke="hsl(${h} 35% 35%)" stroke-width="10" stroke-linejoin="round"/>${label ? `<text x="200" y="272" text-anchor="middle" font-family="Tahoma" font-size="20" fill="#fff">${esc(label)}</text>` : ''}</svg>`;
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+}
+const imgSrc = (u, seed = 0) => { if (!u) return placeholder(seed); if (!u.startsWith('ph:')) return u; const [, n, label] = u.split(':'); return placeholder(+n || 0, label || ''); };
+const cover = l => imgSrc(l.images?.[0], l.id);
+
+/* فشرده‌سازی عکس قبل از آپلود */
+async function compress(file, max, q) {
+  const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }).catch(() => null);
+  if (!bmp) throw new Error('فایل تصویر قابل خواندن نیست');
+  const r = Math.min(1, max / Math.max(bmp.width, bmp.height));
+  const c = document.createElement('canvas'); c.width = Math.round(bmp.width * r); c.height = Math.round(bmp.height * r);
+  c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+  return new Promise(res => c.toBlob(res, 'image/jpeg', q));
+}
+
+/* =====================================================================
+   لایه داده — Supabase
+   ===================================================================== */
+function loadScript(src) {
+  return new Promise((ok, bad) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => bad(new Error('اتصال به اینترنت برقرار نیست')); document.head.append(s); });
+}
+function sbErr(e) {
+  const m = e?.message || String(e);
+  if (/Invalid login/i.test(m)) return 'ایمیل یا رمز عبور اشتباه است';
+  if (/already registered/i.test(m)) return 'این ایمیل قبلا ثبت‌نام کرده است';
+  if (/Password should/i.test(m)) return 'رمز عبور باید حداقل ۶ کاراکتر باشد';
+  if (/Email not confirmed/i.test(m)) return 'ابتدا ایمیل خود را تأیید کنید (لینک به ایمیلتان فرستاده شده)';
+  if (/row-level security|permission/i.test(m)) return 'شما اجازه این کار را ندارید';
+  if (/Failed to fetch|NetworkError/i.test(m)) return 'اتصال به اینترنت برقرار نیست';
+  return m;
+}
+const ok = ({ data, error }) => { if (error) throw new Error(sbErr(error)); return data; };
+
+function SupaDB() {
+  let sb, uid = null;
+  const strip = (o, keys) => { const x = { ...o }; keys.forEach(k => delete x[k]); return x; };
+  return {
+    async init() {
+      await loadScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js');
+      sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseKey);
+      const { data } = await sb.auth.getSession(); uid = data.session?.user?.id || null;
+    },
+    async me() {
+      if (!uid) return null;
+      const p = ok(await sb.from('profiles').select('*').eq('id', uid).maybeSingle());
+      return p;
+    },
+    async signIn(email, pw) { const d = ok(await sb.auth.signInWithPassword({ email, password: pw })); uid = d.user.id; },
+    async signUp(email, pw, full_name, phone) {
+      const d = ok(await sb.auth.signUp({ email, password: pw, options: { data: { full_name, phone } } }));
+      uid = d.session ? d.user.id : null;
+      return !!d.session;
+    },
+    async signOut() { await sb.auth.signOut(); uid = null; },
+    async setPassword(pw) { ok(await sb.auth.updateUser({ password: pw })); },
+    async listings() { return ok(await sb.from('listings').select('*').order('created_at', { ascending: false })); },
+    async saveListing(l, isAdmin) {
+      const body = strip(l, ['id', 'views', 'created_at', 'updated_at', ...(isAdmin ? [] : ['agent_id', 'featured', 'verified'])]);
+      if (l.id) return ok(await sb.from('listings').update(body).eq('id', l.id).select().single());
+      return ok(await sb.from('listings').insert(body).select().single());
+    },
+    async deleteListing(id) { ok(await sb.from('listings').delete().eq('id', id)); },
+    async getPrivate(id) { return ok(await sb.from('listing_private').select('*').eq('listing_id', id).maybeSingle()); },
+    async savePrivate(id, p) { ok(await sb.from('listing_private').upsert({ ...p, listing_id: id })); },
+    async incViews(id) { await sb.rpc('inc_views', { lid: id }); },
+    async agents() { return ok(await sb.from('public_agents').select('*')); },
+    async profiles() { return ok(await sb.from('profiles').select('*').order('created_at')); },
+    async updateProfile(id, patch) { ok(await sb.from('profiles').update(patch).eq('id', id)); },
+    async designs() { return ok(await sb.from('designs').select('*').order('created_at', { ascending: false })); },
+    async saveDesign(d) {
+      const body = strip(d, ['id', 'created_at']);
+      if (d.id) return ok(await sb.from('designs').update(body).eq('id', d.id).select().single());
+      return ok(await sb.from('designs').insert(body).select().single());
+    },
+    async deleteDesign(id) { ok(await sb.from('designs').delete().eq('id', id)); },
+    async addLead(l) { ok(await sb.from('leads').insert(l)); },
+    async leads() { return ok(await sb.from('leads').select('*').order('created_at', { ascending: false })); },
+    async updateLead(id, patch) { ok(await sb.from('leads').update(patch).eq('id', id)); },
+    async upload(file) {
+      const blob = await compress(file, 1600, .82);
+      const path = `${uid}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+      ok(await sb.storage.from('media').upload(path, blob, { contentType: 'image/jpeg', cacheControl: '31536000' }));
+      return sb.storage.from('media').getPublicUrl(path).data.publicUrl;
+    }
+  };
+}
+
+/* =====================================================================
+   لایه داده — حالت نمایشی (همان قوانین دسترسی، در مرورگر)
+   ===================================================================== */
+function DemoDB() {
+  const KEY = 'amlak-demo-v1';
+  let D = store.get(KEY, null), uid = store.get('amlak-demo-user', null);
+  const save = () => { if (!store.set(KEY, D)) throw new Error('حافظه حالت نمایشی پر شد؛ عکس کمتری بگذارید'); };
+  const me = () => D.profiles.find(p => p.id === uid && p.active) || null;
+  const isAdmin = () => me()?.role === 'admin';
+  const isStaff = () => ['admin', 'agent'].includes(me()?.role);
+  const owns = lid => { const l = D.listings.find(x => x.id === lid); return l && (isAdmin() || (isStaff() && l.agent_id === uid)); };
+  const deny = () => { throw new Error('شما اجازه این کار را ندارید'); };
+  const clone = x => JSON.parse(JSON.stringify(x));
+  const now = d => new Date(Date.now() - d * 86400000).toISOString();
+  function seed() {
+    const P = (id, full_name, phone, role, email, bio = '') => ({ id, full_name, phone, role, email, bio, active: true, created_at: now(60) });
+    const L = (id, agent_id, deal, ptype, title, district, o) => ({
+      id, agent_id, deal, ptype, title, city: 'تهران', district, price: null, deposit: null, rent: null, area: null, land_area: null,
+      rooms: null, floor: null, floors: null, year_built: null, features: [], description: '', images: [`ph:${id}`, `ph:${id + 3}`, `ph:${id + 7}`],
+      status: 'active', featured: false, verified: false, views: Math.floor(Math.random() * 300), created_at: now(id), updated_at: now(id), ...o
+    });
+    return {
+      seq: 100,
+      profiles: [P('u-admin', 'مدیر بنگاه', '09120000000', 'admin', 'admin@demo', 'مدیر و مشاور ارشد'),
+        P('u-a1', 'سارا محمدی', '09121111111', 'agent', 'sara@demo', 'متخصص آپارتمان‌های شمال تهران'),
+        P('u-a2', 'رضا کریمی', '09122222222', 'agent', 'reza@demo', 'اجاره و رهن، مناطق غرب'),
+        P('u-p1', 'علی نوری', '09123333333', 'pending', 'ali@demo')],
+      listings: [
+        L(1, 'u-a1', 'sale', 'apartment', 'آپارتمان ۱۲۰ متری نوساز با ویو ابدی', 'سعادت‌آباد', { price: 14500000000, area: 120, rooms: 2, floor: 6, floors: 8, year_built: 1402, features: ['پارکینگ', 'آسانسور', 'انباری', 'بالکن', 'لابی', 'نوساز'], featured: true, verified: true, description: 'واحد شرقی، نورگیر عالی\nکابینت های‌گلاس، کف سرامیک\nمشاعات لوکس با لابی و سرایدار' }),
+        L(2, 'u-a1', 'sale', 'villa', 'خانه ویلایی ۲ طبقه با حیاط', 'نیاوران', { price: 68000000000, area: 340, land_area: 400, rooms: 4, floors: 2, year_built: 1395, features: ['پارکینگ', 'استخر', 'انباری', 'سند تک‌برگ'], verified: true, description: 'حیاط ۲۰۰ متری با درختان قدیمی\nاستخر و سونا در زیرزمین' }),
+        L(3, 'u-a2', 'rent', 'apartment', 'آپارتمان ۸۵ متری نزدیک مترو', 'صادقیه', { deposit: 600000000, rent: 18000000, area: 85, rooms: 2, floor: 3, floors: 5, year_built: 1398, features: ['پارکینگ', 'آسانسور', 'دسترسی به مترو'], description: 'مناسب زوج جوان، تخلیه اول ماه' }),
+        L(4, 'u-a2', 'rent', 'office', 'دفتر اداری ۶۰ متری موقعیت اداری', 'ستارخان', { deposit: 400000000, rent: 25000000, area: 60, floor: 2, floors: 4, features: ['آسانسور', 'پارکینگ'], status: 'reserved' }),
+        L(5, 'u-admin', 'sale', 'commercial', 'مغازه ۳۵ متری بر خیابان اصلی', 'پونک', { price: 9200000000, area: 35, year_built: 1390, features: ['سند تک‌برگ'] }),
+        L(6, 'u-a1', 'rent', 'apartment', 'آپارتمان ۱۵۰ متری مبله لوکس', 'زعفرانیه', { deposit: 3000000000, rent: 60000000, area: 150, rooms: 3, floor: 4, floors: 6, year_built: 1400, features: ['پارکینگ', 'آسانسور', 'مبله', 'لابی', 'سونا و جکوزی'], featured: true, verified: true }),
+        L(7, 'u-a2', 'sale', 'land', 'زمین ۵۰۰ متری با پروانه ساخت', 'لواسان', { price: 32000000000, land_area: 500, features: ['سند تک‌برگ'] }),
+        L(8, 'u-a2', 'rent', 'apartment', 'آپارتمان ۷۰ متری رهن کامل', 'شهرک غرب', { deposit: 1500000000, rent: 0, area: 70, rooms: 1, floor: 1, floors: 4, year_built: 1385, features: ['پارکینگ', 'انباری'] }),
+        L(9, 'u-a1', 'sale', 'apartment', 'آپارتمان ۹۵ متری (فروخته شده)', 'ونک', { price: 11000000000, area: 95, rooms: 2, status: 'sold' })
+      ],
+      priv: [{ listing_id: 1, owner_name: 'آقای احمدی', owner_phone: '09125555555', exact_address: 'سعادت‌آباد، خیابان سرو غربی، پلاک ۱۲، واحد ۶', notes: 'مالک برای قیمت کمی انعطاف دارد' },
+        { listing_id: 3, owner_name: 'خانم رضایی', owner_phone: '09126666666', exact_address: 'صادقیه، فلکه دوم، کوچه نهم، پلاک ۴', notes: '' }],
+      leads: [{ id: 1, listing_id: 1, name: 'مریم', phone: '09351234567', message: 'برای بازدید پنجشنبه عصر وقت دارید؟', status: 'new', created_at: now(0.2) },
+        { id: 2, listing_id: 3, name: 'حسین', phone: '09191234567', message: 'آیا رهن بیشتر و اجاره کمتر ممکن است؟', status: 'contacted', created_at: now(2) }],
+      designs: [
+        { id: 1, title: 'بازطراحی پذیرایی آپارتمان ۱۴۰ متری', style: 'مدرن', space: 'پذیرایی', city: 'تهران، الهیه', area: 45, description: 'تغییر نورپردازی، دیوارپوش چوبی و مبلمان سفارشی.\nمدت اجرا: ۶ هفته', images: ['ph:21:بعد', 'ph:22', 'ph:23'], before_image: 'ph:24:قبل', created_at: now(3) },
+        { id: 2, title: 'آشپزخانه جزیره‌ای', style: 'مینیمال', space: 'آشپزخانه', city: 'تهران، پاسداران', area: 18, description: 'کابینت های‌گلاس مات، صفحه کوارتز و جزیره با صندلی بار.', images: ['ph:31', 'ph:32'], before_image: null, created_at: now(10) },
+        { id: 3, title: 'اتاق خواب مستر', style: 'کلاسیک', space: 'اتاق خواب', city: 'کرج', area: 22, description: 'کاغذدیواری، قاب‌بندی گچی و نورپردازی مخفی.', images: ['ph:41', 'ph:42', 'ph:43'], created_at: now(20) }
+      ]
+    };
+  }
+  if (!D) { D = seed(); save(); }
+  return {
+    async init() { },
+    async me() { return me() ? clone(me()) : (uid && D.profiles.find(p => p.id === uid) ? clone(D.profiles.find(p => p.id === uid)) : null); },
+    async signIn(email) {
+      const p = D.profiles.find(x => x.email === email.trim().toLowerCase());
+      if (!p) throw new Error('ایمیل یا رمز عبور اشتباه است');
+      uid = p.id; store.set('amlak-demo-user', uid);
+    },
+    async signUp(email, pw, full_name, phone) {
+      email = email.trim().toLowerCase();
+      if (D.profiles.some(p => p.email === email)) throw new Error('این ایمیل قبلا ثبت‌نام کرده است');
+      if (pw.length < 6) throw new Error('رمز عبور باید حداقل ۶ کاراکتر باشد');
+      const p = { id: 'u-' + (++D.seq), email, full_name, phone, bio: '', role: D.profiles.some(x => x.role === 'admin') ? 'pending' : 'admin', active: true, created_at: new Date().toISOString() };
+      D.profiles.push(p); save(); uid = p.id; store.set('amlak-demo-user', uid); return true;
+    },
+    async signOut() { uid = null; store.set('amlak-demo-user', null); },
+    async setPassword() { },
+    async listings() {
+      return clone(D.listings.filter(l => ['active', 'reserved'].includes(l.status) || isAdmin() || (isStaff() && l.agent_id === uid))
+        .sort((a, b) => b.created_at.localeCompare(a.created_at)));
+    },
+    async saveListing(l) {
+      if (!isStaff()) deny();
+      const t = new Date().toISOString();
+      if (l.id) {
+        const i = D.listings.findIndex(x => x.id === l.id); if (i < 0 || !owns(l.id)) deny();
+        const old = D.listings[i];
+        D.listings[i] = { ...old, ...l, updated_at: t, views: old.views, ...(isAdmin() ? {} : { agent_id: old.agent_id, featured: old.featured, verified: old.verified }) };
+        save(); return clone(D.listings[i]);
+      }
+      const n = { ...l, id: ++D.seq, views: 0, created_at: t, updated_at: t, ...(isAdmin() ? { agent_id: l.agent_id || uid } : { agent_id: uid, featured: false, verified: false }) };
+      D.listings.push(n); save(); return clone(n);
+    },
+    async deleteListing(id) { if (!owns(id)) deny(); D.listings = D.listings.filter(l => l.id !== id); D.priv = D.priv.filter(p => p.listing_id !== id); D.leads = D.leads.filter(x => x.listing_id !== id); save(); },
+    async getPrivate(id) { if (!owns(id)) deny(); return clone(D.priv.find(p => p.listing_id === id) || null); },
+    async savePrivate(id, p) { if (!owns(id)) deny(); D.priv = D.priv.filter(x => x.listing_id !== id); D.priv.push({ ...p, listing_id: id }); save(); },
+    async incViews(id) { const l = D.listings.find(x => x.id === id); if (l) { l.views++; save(); } },
+    async agents() { return clone(D.profiles.filter(p => ['admin', 'agent'].includes(p.role) && p.active).map(({ id, full_name, phone, bio }) => ({ id, full_name, phone, bio }))); },
+    async profiles() { if (!isAdmin()) return clone(D.profiles.filter(p => p.id === uid)); return clone(D.profiles); },
+    async updateProfile(id, patch) {
+      if (id !== uid && !isAdmin()) deny();
+      const p = D.profiles.find(x => x.id === id);
+      if (!isAdmin()) { delete patch.role; delete patch.active; }
+      Object.assign(p, patch); save();
+    },
+    async designs() { return clone(D.designs.sort((a, b) => b.created_at.localeCompare(a.created_at))); },
+    async saveDesign(d) {
+      if (!isAdmin()) deny();
+      if (d.id) { const i = D.designs.findIndex(x => x.id === d.id); D.designs[i] = { ...D.designs[i], ...d }; save(); return clone(D.designs[i]); }
+      const n = { ...d, id: ++D.seq, created_at: new Date().toISOString() }; D.designs.push(n); save(); return clone(n);
+    },
+    async deleteDesign(id) { if (!isAdmin()) deny(); D.designs = D.designs.filter(d => d.id !== id); save(); },
+    async addLead(l) { D.leads.push({ ...l, id: ++D.seq, status: 'new', created_at: new Date().toISOString() }); save(); },
+    async leads() { return clone(D.leads.filter(x => owns(x.listing_id)).sort((a, b) => b.created_at.localeCompare(a.created_at))); },
+    async updateLead(id, patch) { const x = D.leads.find(l => l.id === id); if (!x || !owns(x.listing_id)) deny(); Object.assign(x, patch); save(); },
+    async upload(file) {
+      if (!isStaff()) deny();
+      const blob = await compress(file, 900, .7);
+      return new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(blob); });
+    },
+    reset() { localStorage.removeItem(KEY); localStorage.removeItem('amlak-demo-user'); }
+  };
+}
+
+/* =====================================================================
+   وضعیت و مسیریابی
+   ===================================================================== */
+const DB = DEMO ? DemoDB() : SupaDB();
+const S = { me: null, listings: null, agents: null, designs: null, filters: store.get('amlak-filters', {}) };
+const isStaff = () => !!S.me && S.me.active && ['admin', 'agent'].includes(S.me.role);
+const isAdmin = () => !!S.me && S.me.active && S.me.role === 'admin';
+const canEdit = l => isAdmin() || (isStaff() && l.agent_id === S.me.id);
+const favs = () => store.get('amlak-favs', []);
+const agentOf = id => (S.agents || []).find(a => a.id === id);
+
+async function loadListings(force) { if (force || !S.listings) S.listings = await DB.listings(); return S.listings; }
+async function loadAgents(force) { if (force || !S.agents) S.agents = await DB.agents(); return S.agents; }
+async function loadDesigns(force) { if (force || !S.designs) S.designs = await DB.designs(); return S.designs; }
+const invalidate = () => { S.listings = null; S.agents = null; };
+
+function go(h) { if (location.hash === '#' + h) route(); else location.hash = h; }
+const view = () => $('#view');
+
+function renderChrome(name) {
+  document.title = (CFG.name || 'املاک');
+  $('#appName').textContent = CFG.name || 'املاک';
+  $('#appTag').textContent = CFG.tagline || '';
+  $('#who').innerHTML = S.me ? `<b>${esc(S.me.full_name || S.me.email)}</b><br>${ROLES[S.me.role] || ''}` : '';
+  const tabs = [['sale', 'فروش', I.sale], ['rent', 'اجاره', I.rent], ['designs', 'طراحی‌ها', I.design], ['fav', 'نشان‌شده', I.heartO],
+    S.me ? ['panel', 'پنل', I.panel] : ['login', 'مشاوران', I.user]];
+  $('#tabs').innerHTML = tabs.map(([h, t, ic]) => `<a href="#${h}" class="${name === h ? 'on' : ''}">${ic}<span>${t}</span></a>`).join('');
+  const db = $('#demoBar');
+  db.hidden = !DEMO;
+  if (DEMO) db.innerHTML = 'حالت نمایشی: اطلاعات فقط در همین مرورگر است. برای راه‌اندازی واقعی فایل <b>config.js</b> را طبق راهنما پر کنید. <button class="btn sm ghost" id="demoReset">بازنشانی داده‌های نمونه</button>';
+  $('#demoReset')?.addEventListener('click', () => { if (confirm('همه داده‌های نمایشی پاک و از نو ساخته شود؟')) { DB.reset(); location.reload(); } });
+}
+
+async function route() {
+  const [name, arg] = (location.hash.slice(1) || 'sale').split('/');
+  renderChrome(['l', 'agent'].includes(name) ? (S.lastList || 'sale') : name === 'd' ? 'designs' : ['edit', 'dedit'].includes(name) ? 'panel' : name);
+  window.scrollTo(0, 0);
+  const v = view();
+  v.innerHTML = '<div class="spin"></div>';
+  try {
+    switch (name) {
+      case 'sale': case 'rent': S.lastList = name; await viewList(name); break;
+      case 'l': await viewListing(+arg); break;
+      case 'agent': await viewAgent(arg); break;
+      case 'designs': await viewDesigns(); break;
+      case 'd': await viewDesign(+arg); break;
+      case 'fav': S.lastList = 'fav'; await viewFav(); break;
+      case 'login': S.me ? go('panel') : viewLogin(); break;
+      case 'panel': isStaff() ? await viewPanel(arg) : S.me ? viewPending() : go('login'); break;
+      case 'edit': isStaff() ? await viewEdit(arg) : go('login'); break;
+      case 'dedit': isAdmin() ? await viewDesignEdit(arg) : go('designs'); break;
+      default: go('sale');
+    }
+  } catch (e) {
+    console.error(e);
+    v.innerHTML = `<div class="empty">${I.empty}<p>${esc(e.message || e)}</p><button class="btn" onclick="location.reload()">تلاش دوباره</button></div>`;
+  }
+}
+
+/* =====================================================================
+   مشتری: فهرست آگهی‌ها
+   ===================================================================== */
+const DEF_F = { q: '', ptype: '', max: '', maxRent: '', minArea: '', rooms: '', feats: [], hideRes: false, sort: 'new' };
+function priceLine(l) {
+  if (l.deal === 'sale') return `<div class="price num">${money(l.price)}</div>`;
+  return `<div class="price num">رهن ${money(l.deposit, false)} <small>|</small> اجاره ${l.rent ? money(l.rent, false) : '<small>رهن کامل</small>'}</div>`;
+}
+function metaLine(l) {
+  return [l.area && `${fa(l.area)} متر`, l.land_area && !l.area && `زمین ${fa(l.land_area)} متر`, l.rooms != null && l.rooms !== '' && (l.rooms ? `${fa(l.rooms)} خواب` : 'بدون اتاق'),
+    l.floor != null && l.floor !== '' && `طبقه ${fa(l.floor)}`, l.year_built && `ساخت ${faStr(l.year_built)}`].filter(Boolean).map(x => `<span>${x}</span>`).join('');
+}
+function card(l) {
+  const f = favs().includes(l.id), dim = !['active', 'reserved'].includes(l.status);
+  return `<a class="lc${dim ? ' dim' : ''}" href="#l/${l.id}">
+    <div class="ph"><img loading="lazy" src="${esc(cover(l))}" alt="">
+      <div class="badges">${l.featured ? '<span class="tag gold">ویژه</span>' : ''}${l.verified ? '<span class="tag">✓ تأیید شده</span>' : ''}${l.status !== 'active' ? `<span class="tag">${STATUS[l.status][0]}</span>` : ''}</div>
+      <button class="fav${f ? ' on' : ''}" data-fav="${l.id}" aria-label="نشان کردن">${f ? I.heart : I.heartO}</button></div>
+    <div class="bd">${priceLine(l)}<div class="t">${esc(l.title)}</div>
+      <div class="meta">${metaLine(l)}</div>
+      <div class="loc">${esc([l.district, l.city].filter(Boolean).join('، '))} · ${PTYPES[l.ptype] || ''} · ${ago(l.created_at)}</div></div></a>`;
+}
+function toggleFav(id) {
+  const f = favs(), i = f.indexOf(id);
+  i < 0 ? f.unshift(id) : f.splice(i, 1); store.set('amlak-favs', f);
+  toast(i < 0 ? 'به نشان‌شده‌ها اضافه شد' : 'از نشان‌شده‌ها حذف شد', 1500);
+  return i < 0;
+}
+function bindFav(root) {
+  $$('[data-fav]', root).forEach(b => b.addEventListener('click', e => {
+    e.preventDefault(); e.stopPropagation();
+    const on = toggleFav(+b.dataset.fav); b.classList.toggle('on', on); b.innerHTML = on ? I.heart : I.heartO;
+  }));
+}
+function opts(list, val, empty) {
+  return (empty != null ? `<option value="">${empty}</option>` : '') +
+    list.map(([v, t]) => `<option value="${esc(v)}"${String(v) === String(val) ? ' selected' : ''}>${esc(t)}</option>`).join('');
+}
+
+async function viewList(deal) {
+  const all = await loadListings(); await loadAgents();
+  const F = S.filters[deal] = { ...DEF_F, ...(S.filters[deal] || {}) };
+  const sale = deal === 'sale';
+  const maxOpts = sale ? [2, 3, 5, 8, 12, 20, 40, 80].map(b => [b * 1e9, `تا ${fa(b)} میلیارد`])
+    : [100, 300, 500, 1000, 2000, 5000].map(m => [m * 1e6, m >= 1000 ? `رهن تا ${fa(m / 1000)} میلیارد` : `رهن تا ${fa(m)} میلیون`]);
+  const nActive = ['ptype', 'max', 'maxRent', 'minArea', 'rooms'].filter(k => F[k]).length + F.feats.length + (F.hideRes ? 1 : 0);
+  view().innerHTML = `
+    <h2>${sale ? 'خرید ملک' : 'رهن و اجاره'}</h2>
+    <div class="search"><input id="q" type="search" placeholder="جستجوی محله، عنوان یا کد آگهی…" value="${esc(F.q)}">
+      <button class="iconbtn" id="tgl" aria-label="فیلترها" style="${nActive ? 'border-color:var(--accent);color:var(--accent)' : ''}">${I.filter}</button></div>
+    <div class="chips" style="margin-bottom:10px" id="ptypes">${[['', 'همه'], ...Object.entries(PTYPES)].map(([k, t]) => `<button class="chip${F.ptype === k ? ' on' : ''}" data-p="${k}">${t}</button>`).join('')}</div>
+    <div class="card filters" id="flt" ${S.showF ? '' : 'hidden'}>
+      <div class="grid2">
+        <label class="f"><span>${sale ? 'حداکثر قیمت' : 'حداکثر رهن'}</span><select id="max">${opts(maxOpts, F.max, 'فرقی نمی‌کند')}</select></label>
+        ${sale ? '' : `<label class="f"><span>حداکثر اجاره ماهانه</span><select id="maxRent">${opts([0, 5, 10, 20, 40, 80].map(m => [m ? m * 1e6 : -1, m ? `تا ${fa(m)} میلیون` : 'فقط رهن کامل']), F.maxRent, 'فرقی نمی‌کند')}</select></label>`}
+        <label class="f"><span>حداقل متراژ</span><select id="minArea">${opts([50, 75, 100, 150, 200, 300].map(a => [a, `از ${fa(a)} متر`]), F.minArea, 'فرقی نمی‌کند')}</select></label>
+        <label class="f"><span>تعداد خواب</span><select id="rooms">${opts([[1, '۱ به بالا'], [2, '۲ به بالا'], [3, '۳ به بالا'], [4, '۴ به بالا']], F.rooms, 'فرقی نمی‌کند')}</select></label>
+        <label class="f"><span>مرتب‌سازی</span><select id="sort">${opts([['new', 'جدیدترین'], ['cheap', 'ارزان‌ترین'], ['exp', 'گران‌ترین'], ['area', 'بزرگ‌ترین'], ['views', 'پربازدیدترین']], F.sort)}</select></label>
+      </div>
+      <div class="stack"><div class="chips" id="feats">${['پارکینگ', 'آسانسور', 'انباری', 'بالکن', 'نوساز', 'مبله', 'سند تک‌برگ'].map(x => `<button class="chip${F.feats.includes(x) ? ' on' : ''}" data-f="${x}">${x}</button>`).join('')}</div>
+      <div class="row"><label class="check"><input type="checkbox" id="hideRes"${F.hideRes ? ' checked' : ''}> نمایش ندادن آگهی‌های «در حال معامله»</label><span class="spacer"></span><button class="btn sm ghost" id="clr">پاک کردن فیلترها</button></div></div>
+    </div>
+    <div class="count" id="cnt"></div>
+    <div class="cards" id="list"></div>`;
+  const draw = () => {
+    store.set('amlak-filters', S.filters);
+    const q = F.q.trim(), qn = toNum(q);
+    const pv = l => sale ? (l.price || 0) : (l.deposit || 0) + (l.rent || 0) * 33;   // تبدیل اجاره به رهن (هر ۱ میلیون اجاره ≈ ۳۳ میلیون رهن) برای مرتب‌سازی
+    let r = all.filter(l => l.deal === deal && ['active', 'reserved'].includes(l.status)
+      && (!q || l.id === qn || [l.title, l.district, l.city, l.description].join(' ').includes(q))
+      && (!F.ptype || l.ptype === F.ptype)
+      && (!F.max || (sale ? (l.price || 0) : (l.deposit || 0)) <= +F.max)
+      && (!F.maxRent || (+F.maxRent < 0 ? !l.rent : (l.rent || 0) <= +F.maxRent))
+      && (!F.minArea || (l.area || l.land_area || 0) >= +F.minArea)
+      && (!F.rooms || (l.rooms || 0) >= +F.rooms)
+      && F.feats.every(x => (l.features || []).includes(x))
+      && !(F.hideRes && l.status === 'reserved'));
+    const so = { new: (a, b) => (b.featured - a.featured) || b.created_at.localeCompare(a.created_at), cheap: (a, b) => pv(a) - pv(b), exp: (a, b) => pv(b) - pv(a), area: (a, b) => (b.area || b.land_area || 0) - (a.area || a.land_area || 0), views: (a, b) => b.views - a.views };
+    r.sort(so[F.sort] || so.new);
+    $('#cnt').textContent = `${fa(r.length)} آگهی`;
+    $('#list').innerHTML = r.length ? r.map(card).join('') : `<div class="empty" style="grid-column:1/-1">${I.empty}<p>آگهی‌ای با این مشخصات پیدا نشد.</p></div>`;
+    bindFav($('#list'));
+  };
+  let tq; $('#q').addEventListener('input', e => { clearTimeout(tq); tq = setTimeout(() => { F.q = e.target.value; draw(); }, 200); });
+  $('#tgl').addEventListener('click', () => { S.showF = !S.showF; $('#flt').hidden = !S.showF; });
+  $$('#ptypes .chip').forEach(b => b.addEventListener('click', () => { F.ptype = b.dataset.p; $$('#ptypes .chip').forEach(x => x.classList.toggle('on', x === b)); draw(); }));
+  $$('#feats .chip').forEach(b => b.addEventListener('click', () => { const i = F.feats.indexOf(b.dataset.f); i < 0 ? F.feats.push(b.dataset.f) : F.feats.splice(i, 1); b.classList.toggle('on'); draw(); }));
+  ['max', 'maxRent', 'minArea', 'rooms', 'sort'].forEach(k => $('#' + k)?.addEventListener('change', e => { F[k] = e.target.value; draw(); }));
+  $('#hideRes').addEventListener('change', e => { F.hideRes = e.target.checked; draw(); });
+  $('#clr').addEventListener('click', () => { S.filters[deal] = { ...DEF_F }; viewList(deal); });
+  draw();
+}
+
+async function viewFav() {
+  const all = await loadListings();
+  const ids = favs(), r = ids.map(id => all.find(l => l.id === id)).filter(Boolean);
+  view().innerHTML = `<h2>نشان‌شده‌ها</h2><p class="muted small">آگهی‌هایی که با ♥ نشان کرده‌اید (روی همین گوشی ذخیره می‌شود).</p>
+    <div class="cards" id="list">${r.length ? r.map(card).join('') : `<div class="empty" style="grid-column:1/-1">${I.heartO}<p>هنوز آگهی‌ای نشان نکرده‌اید.</p></div>`}</div>`;
+  bindFav(view());
+  $$('[data-fav]').forEach(b => b.addEventListener('click', () => setTimeout(viewFav, 300)));
+}
+
+/* =====================================================================
+   مشتری: جزئیات آگهی
+   ===================================================================== */
+function gallery(imgs, seed) {
+  const list = (imgs?.length ? imgs : [null]).map((u, i) => imgSrc(u, seed + i));
+  return `<div class="gal"><div class="track" id="track">${list.map(u => `<img src="${esc(u)}" alt="">`).join('')}</div>
+    ${list.length > 1 ? `<span class="n" id="gn">${fa(1)} از ${fa(list.length)}</span>` : ''}</div>
+    ${list.length > 1 ? `<div class="thumbs">${list.map((u, i) => `<img src="${esc(u)}" data-i="${i}" alt="">`).join('')}</div>` : ''}`;
+}
+function bindGallery() {
+  const tr = $('#track'); if (!tr) return;
+  const n = tr.children.length;
+  tr.addEventListener('scroll', () => { const i = Math.round(Math.abs(tr.scrollLeft) / tr.clientWidth); $('#gn') && ($('#gn').textContent = `${fa(i + 1)} از ${fa(n)}`); }, { passive: true });
+  $$('.thumbs img').forEach(t => t.addEventListener('click', () => tr.children[+t.dataset.i].scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })));
+  $$('#track img').forEach(im => im.addEventListener('click', () => lightbox(im.src)));
+}
+function lightbox(src) {
+  const d = document.createElement('div'); d.className = 'lightbox'; d.innerHTML = `<img src="${esc(src)}" alt="">`;
+  d.addEventListener('click', () => d.remove()); document.body.append(d);
+}
+function agentCard(a, withLink = true) {
+  if (!a) return '';
+  const ph = a.phone || CFG.phone;
+  return `<div class="agentcard"><div class="avatar">${esc((a.full_name || '؟').trim()[0])}</div>
+    <div style="flex:1;min-width:0"><b>${esc(a.full_name)}</b><div class="muted small">${esc(a.bio || 'مشاور املاک')}</div>
+    ${withLink ? `<a class="small" href="#agent/${esc(a.id)}">همه آگهی‌های این مشاور</a>` : ''}</div></div>
+    ${ph ? `<div class="row" style="margin-top:10px"><a class="btn primary" style="flex:1" href="tel:${esc(ph)}">${I.phone} تماس</a>
+    <a class="btn" style="flex:1" href="https://wa.me/${esc(waPhone(ph))}" target="_blank" rel="noopener">${I.chat} واتس‌اپ</a></div>` : ''}`;
+}
+
+async function viewListing(id) {
+  const all = await loadListings(); await loadAgents();
+  const l = all.find(x => x.id === id);
+  if (!l) { view().innerHTML = `<div class="empty">${I.empty}<p>این آگهی پیدا نشد یا دیگر فعال نیست.</p><a class="btn" href="#sale">بازگشت</a></div>`; return; }
+  if (!sessionStorage.getItem('v' + id)) { sessionStorage.setItem('v' + id, 1); DB.incViews(id).catch(() => { }); }
+  const a = agentOf(l.agent_id), edit = canEdit(l), sale = l.deal === 'sale';
+  if (S.lastList !== 'fav') renderChrome(S.lastList = l.deal);
+  const sp = [['نوع ملک', PTYPES[l.ptype]], ['متراژ بنا', l.area && fa(l.area) + ' متر'], ['متراژ زمین', l.land_area && fa(l.land_area) + ' متر'],
+    ['اتاق خواب', l.rooms != null && l.rooms !== '' && fa(l.rooms)], ['طبقه', l.floor != null && l.floor !== '' && (fa(l.floor) + (l.floors ? ' از ' + fa(l.floors) : ''))],
+    ['سال ساخت', l.year_built && faStr(l.year_built)], ['کد آگهی', fa(l.id)], ['بازدید', fa(l.views)]].filter(x => x[1]);
+  const fav = favs().includes(l.id);
+  view().innerHTML = `<button class="back" onclick="history.length>1?history.back():location.hash='${l.deal}'">${I.back} بازگشت</button>
+  <div class="detail"><div class="stack">
+    ${gallery(l.images, l.id)}
+    <div class="row"><span class="tag ${l.deal}">${sale ? 'فروش' : 'رهن و اجاره'}</span>${l.verified ? '<span class="tag ok">✓ تأیید شده توسط بنگاه</span>' : ''}${l.status !== 'active' ? `<span class="tag ${STATUS[l.status][1]}">${STATUS[l.status][0]}</span>` : ''}
+      <span class="spacer"></span><button class="iconbtn" id="shr" aria-label="اشتراک">${I.share}</button><button class="iconbtn" id="fv" aria-label="نشان" style="color:${fav ? '#e8475a' : ''}">${fav ? I.heart : I.heartO}</button></div>
+    <h2>${esc(l.title)}</h2>
+    <div class="muted">${esc([l.district, l.city].filter(Boolean).join('، '))} · ${ago(l.created_at)}</div>
+    <div class="card">${sale ? `<div class="muted small">قیمت کل</div><div style="font-size:22px;font-weight:800" class="num">${money(l.price)}</div>${l.price && l.area ? `<div class="muted small">قیمت هر متر: ${money(Math.round(l.price / l.area))}</div>` : ''}`
+      : `<div class="grid2"><div><div class="muted small">رهن / ودیعه</div><div style="font-size:19px;font-weight:800">${money(l.deposit)}</div></div><div><div class="muted small">اجاره ماهانه</div><div style="font-size:19px;font-weight:800">${l.rent ? money(l.rent) : 'رهن کامل'}</div></div></div>`}</div>
+    <div class="specs">${sp.map(([k, v]) => `<div class="spec"><small>${k}</small><b>${v}</b></div>`).join('')}</div>
+    ${l.features?.length ? `<div><h3 style="margin-bottom:6px">امکانات</h3><div class="feat">${l.features.map(f => `<span>${esc(f)}</span>`).join('')}</div></div>` : ''}
+    ${l.description ? `<div><h3 style="margin-bottom:6px">توضیحات</h3><div class="desc">${esc(l.description)}</div></div>` : ''}
+    <div id="priv"></div>
+  </div>
+  <aside class="stack">
+    ${edit ? `<div class="card row"><b style="flex:1">مدیریت آگهی</b><a class="btn sm primary" href="#edit/${l.id}">ویرایش</a></div>` : ''}
+    <div class="card">${agentCard(a)}</div>
+    ${['active', 'reserved'].includes(l.status) ? `<form class="card stack" id="lead"><h3>درخواست بازدید یا مشاوره</h3>
+      <p class="muted small" style="margin:0">مشاور این ملک با شما تماس می‌گیرد.</p>
+      <input name="name" required minlength="2" maxlength="80" placeholder="نام شما" autocomplete="name">
+      <input name="phone" required inputmode="tel" placeholder="شماره موبایل" autocomplete="tel">
+      <textarea name="message" maxlength="1000" placeholder="پیام (اختیاری)">سلام، برای بازدید از این ملک (کد ${fa(l.id)}) وقت می‌خواهم.</textarea>
+      <button class="btn primary">ارسال درخواست</button></form>` : ''}
+  </aside></div>`;
+  bindGallery();
+  $('#fv').addEventListener('click', e => { const on = toggleFav(id), b = e.currentTarget; b.innerHTML = on ? I.heart : I.heartO; b.style.color = on ? '#e8475a' : ''; });
+  $('#shr').addEventListener('click', async () => {
+    const url = location.href;
+    if (navigator.share) navigator.share({ title: l.title, text: `${l.title} — ${sale ? money(l.price) : 'رهن ' + money(l.deposit)}`, url }).catch(() => { });
+    else { await navigator.clipboard?.writeText(url); toast('لینک آگهی کپی شد'); }
+  });
+  $('#lead')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    const f = new FormData(e.target), phone = String(toNum(f.get('phone')) ?? '');
+    if (phone.length < 10) return toast('شماره موبایل را درست وارد کنید');
+    const b = $('button', e.target); b.disabled = true;
+    try { await DB.addLead({ listing_id: id, name: f.get('name').trim(), phone: '0' + phone.replace(/^0+/, '').replace(/^98/, ''), message: f.get('message').trim() }); e.target.innerHTML = '<h3>✓ درخواست شما ثبت شد</h3><p class="muted">مشاور به‌زودی با شما تماس می‌گیرد.</p>'; }
+    catch (err) { toast(err.message); b.disabled = false; }
+  });
+  if (edit) {
+    const p = await DB.getPrivate(id).catch(() => null);
+    $('#priv').innerHTML = `<div class="card private stack"><h3>🔒 اطلاعات محرمانه (فقط مشاور این ملک و ادمین)</h3>
+      ${p && (p.owner_name || p.owner_phone || p.exact_address || p.notes) ? `<div class="specs">
+        ${p.owner_name ? `<div class="spec"><small>مالک</small><b>${esc(p.owner_name)}</b></div>` : ''}
+        ${p.owner_phone ? `<div class="spec"><small>تلفن مالک</small><b><a href="tel:${esc(p.owner_phone)}">${esc(faStr(p.owner_phone))}</a></b></div>` : ''}</div>
+        ${p.exact_address ? `<div><small class="muted">آدرس دقیق</small><div>${esc(p.exact_address)}</div></div>` : ''}
+        ${p.notes ? `<div><small class="muted">یادداشت</small><div class="desc">${esc(p.notes)}</div></div>` : ''}` : '<p class="muted small">هنوز ثبت نشده. از «ویرایش» اضافه کنید.</p>'}
+      ${isAdmin() ? `<div class="muted small">مشاور ثبت‌کننده: ${esc(agentOf(l.agent_id)?.full_name || '—')}</div>` : ''}</div>`;
+  }
+}
+
+async function viewAgent(id) {
+  const all = await loadListings(); await loadAgents();
+  const a = agentOf(id);
+  if (!a) { view().innerHTML = `<div class="empty">${I.empty}<p>مشاور پیدا نشد.</p></div>`; return; }
+  const r = all.filter(l => l.agent_id === id && ['active', 'reserved'].includes(l.status));
+  view().innerHTML = `<button class="back" onclick="history.back()">${I.back} بازگشت</button>
+    <div class="card" style="margin-bottom:14px">${agentCard(a, false)}</div>
+    <h3 style="margin-bottom:10px">آگهی‌های فعال (${fa(r.length)})</h3><div class="cards">${r.map(card).join('') || '<p class="muted">آگهی فعالی ندارد.</p>'}</div>`;
+  bindFav(view());
+}
+
+/* =====================================================================
+   طراحی‌ها (همه می‌بینند، فقط ادمین مدیریت می‌کند)
+   ===================================================================== */
+async function viewDesigns() {
+  const ds = await loadDesigns();
+  const F = S.dF || (S.dF = { space: '', style: '' });
+  const spaces = [...new Set(ds.map(d => d.space).filter(Boolean))], styles = [...new Set(ds.map(d => d.style).filter(Boolean))];
+  view().innerHTML = `<div class="row" style="margin-bottom:6px"><h2 style="flex:1">نمونه‌کارهای طراحی داخلی</h2>${isAdmin() ? `<a class="btn sm primary" href="#dedit/new">${I.plus} افزودن</a>` : ''}</div>
+    <p class="muted small" style="margin-top:0">طراحی و بازسازی‌هایی که تیم ما روی منازل انجام داده است.</p>
+    ${spaces.length > 1 ? `<div class="chips" id="sp" style="margin-bottom:6px">${['', ...spaces].map(s => `<button class="chip${F.space === s ? ' on' : ''}" data-v="${esc(s)}">${esc(s || 'همه فضاها')}</button>`).join('')}</div>` : ''}
+    ${styles.length > 1 ? `<div class="chips" id="st" style="margin-bottom:12px">${['', ...styles].map(s => `<button class="chip${F.style === s ? ' on' : ''}" data-v="${esc(s)}">${esc(s || 'همه سبک‌ها')}</button>`).join('')}</div>` : ''}
+    <div class="dcards" id="dl"></div>`;
+  const draw = () => {
+    const r = ds.filter(d => (!F.space || d.space === F.space) && (!F.style || d.style === F.style));
+    $('#dl').innerHTML = r.length ? r.map(d => `<a class="dc" href="#d/${d.id}"><img loading="lazy" src="${esc(imgSrc(d.images?.[0], d.id * 10))}" alt="">
+      <div class="cap"><b>${esc(d.title)}</b><small>${esc([d.style, d.space, d.area && fa(d.area) + ' متر'].filter(Boolean).join(' · '))}</small></div></a>`).join('')
+      : `<div class="empty" style="grid-column:1/-1">${I.design}<p>هنوز نمونه‌کاری ثبت نشده است.</p></div>`;
+  };
+  [['#sp', 'space'], ['#st', 'style']].forEach(([s, k]) => $$(s + ' .chip').forEach(b => b.addEventListener('click', () => { F[k] = b.dataset.v; $$(s + ' .chip').forEach(x => x.classList.toggle('on', x === b)); draw(); })));
+  draw();
+}
+
+async function viewDesign(id) {
+  const d = (await loadDesigns()).find(x => x.id === id);
+  if (!d) { view().innerHTML = `<div class="empty">${I.empty}<p>پیدا نشد.</p></div>`; return; }
+  const imgs = (d.images || []).map((u, i) => imgSrc(u, d.id * 10 + i));
+  view().innerHTML = `<button class="back" onclick="history.length>1?history.back():location.hash='designs'">${I.back} بازگشت</button>
+    <div class="stack">
+      <div class="row"><h2 style="flex:1">${esc(d.title)}</h2>${isAdmin() ? `<a class="btn sm" href="#dedit/${d.id}">ویرایش</a>` : ''}</div>
+      <div class="row">${[d.style, d.space, d.city, d.area && fa(d.area) + ' متر'].filter(Boolean).map(x => `<span class="tag">${esc(x)}</span>`).join('')}</div>
+      ${d.before_image && imgs[0] ? `<div class="ba"><figure><img src="${esc(imgSrc(d.before_image, d.id))}" alt=""><figcaption>قبل</figcaption></figure><figure><img src="${esc(imgs[0])}" alt=""><figcaption>بعد</figcaption></figure></div>` : ''}
+      ${d.description ? `<div class="desc">${esc(d.description)}</div>` : ''}
+      <div class="masonry">${imgs.map(u => `<img src="${esc(u)}" loading="lazy" alt="">`).join('')}</div>
+      <div class="card"><b>برای طراحی خانه خود مشاوره می‌خواهید؟</b><div class="muted small">با دفتر تماس بگیرید.</div>
+      ${CFG.phone ? `<a class="btn primary" style="margin-top:8px" href="tel:${esc(CFG.phone)}">${I.phone} تماس با دفتر</a>` : ''}</div>
+    </div>`;
+  $$('.masonry img, .ba img').forEach(im => im.addEventListener('click', () => lightbox(im.src)));
+}
+
+/* =====================================================================
+   ورود / ثبت‌نام مشاوران
+   ===================================================================== */
+function viewLogin() {
+  view().innerHTML = `<div style="max-width:420px;margin:0 auto" class="stack">
+    <h2>ورود مشاوران و مدیر</h2>
+    <p class="muted small" style="margin:0">مشتریان برای دیدن آگهی‌ها نیازی به ورود ندارند.</p>
+    <div class="seg" id="mode"><button class="on" data-m="in">ورود</button><button data-m="up">ثبت‌نام مشاور جدید</button></div>
+    <form class="card stack" id="f">
+      <div id="upOnly" hidden class="stack"><input name="full_name" placeholder="نام و نام خانوادگی"><input name="phone" inputmode="tel" placeholder="شماره موبایل (به مشتری نمایش داده می‌شود)"></div>
+      <input name="email" type="email" required placeholder="ایمیل" autocomplete="username" dir="ltr">
+      <input name="pw" type="password" required placeholder="رمز عبور" autocomplete="current-password" dir="ltr" minlength="${DEMO ? 0 : 6}">
+      <button class="btn primary" id="sb">ورود</button>
+      <p class="muted small" id="note" hidden style="margin:0">بعد از ثبت‌نام، ادمین باید حساب شما را تأیید کند تا بتوانید آگهی ثبت کنید.</p>
+    </form>
+    ${DEMO ? `<div class="card stack"><b>ورود سریع در حالت نمایشی</b><div class="row">
+      <button class="btn sm" data-q="admin@demo">ادمین اصلی</button><button class="btn sm" data-q="sara@demo">مشاور: سارا</button><button class="btn sm" data-q="reza@demo">مشاور: رضا</button><button class="btn sm" data-q="ali@demo">منتظر تأیید</button></div></div>` : ''}
+  </div>`;
+  let mode = 'in';
+  $$('#mode button').forEach(b => b.addEventListener('click', () => {
+    mode = b.dataset.m; $$('#mode button').forEach(x => x.classList.toggle('on', x === b));
+    $('#upOnly').hidden = $('#note').hidden = mode !== 'up'; $('#sb').textContent = mode === 'up' ? 'ثبت‌نام' : 'ورود';
+    $('[name=full_name]').required = mode === 'up';
+  }));
+  const after = async () => { S.me = await DB.me(); invalidate(); go('panel'); };
+  $('#f').addEventListener('submit', async e => {
+    e.preventDefault(); const f = new FormData(e.target), b = $('#sb'); b.disabled = true;
+    try {
+      if (mode === 'in') await DB.signIn(f.get('email'), f.get('pw'));
+      else if (!await DB.signUp(f.get('email'), f.get('pw'), f.get('full_name').trim(), f.get('phone').trim())) {
+        b.disabled = false; return toast('ثبت‌نام انجام شد. لینک تأیید به ایمیل شما فرستاده شد؛ بعد از تأیید وارد شوید.', 6000);
+      }
+      await after();
+    } catch (err) { toast(err.message); b.disabled = false; }
+  });
+  $$('[data-q]').forEach(b => b.addEventListener('click', async () => { await DB.signIn(b.dataset.q, ''); await after(); }));
+}
+
+function viewPending() {
+  view().innerHTML = `<div class="empty">${I.user}<h3>${S.me.active ? 'حساب شما در انتظار تأیید ادمین است' : 'حساب شما غیرفعال شده است'}</h3>
+    <p>${S.me.active ? 'بعد از تأیید مدیر بنگاه می‌توانید آگهی ثبت کنید.' : 'برای پیگیری با مدیر بنگاه تماس بگیرید.'}</p>
+    <div class="row" style="justify-content:center"><button class="btn" onclick="location.reload()">بررسی دوباره</button><button class="btn danger" id="out">خروج</button></div></div>`;
+  $('#out').addEventListener('click', logout);
+}
+async function logout() { await DB.signOut(); S.me = null; invalidate(); go('sale'); }
+
+/* =====================================================================
+   پنل مشاور / ادمین
+   ===================================================================== */
+async function viewPanel(tab, reuse) {
+  tab = tab || 'listings';
+  if (!reuse || !S.panel) S.panel = await Promise.all([loadListings(true), loadAgents(true), DB.leads()]);
+  const [all, agents, leads] = S.panel;
+  const admin = isAdmin();
+  const mine = admin ? all : all.filter(l => l.agent_id === S.me.id);
+  const newLeads = leads.filter(x => x.status === 'new').length;
+  const tabs = [['listings', admin ? 'همه آگهی‌ها' : 'آگهی‌های من'], ['leads', `درخواست‌ها${newLeads ? ` (${fa(newLeads)})` : ''}`],
+    ...(admin ? [['agents', 'مشاوران'], ['designs', 'طراحی‌ها']] : []), ['me', 'حساب من']];
+  view().innerHTML = `
+    <div class="row" style="margin-bottom:12px"><h2 style="flex:1">${admin ? 'پنل مدیریت' : 'پنل مشاور'}</h2>
+      <a class="btn primary" href="#edit/new">${I.plus} ثبت آگهی</a></div>
+    <div class="stats" style="margin-bottom:14px">
+      <div class="stat"><small>آگهی فعال</small><b>${fa(mine.filter(l => l.status === 'active').length)}</b></div>
+      <div class="stat"><small>فروش / اجاره</small><b>${fa(mine.filter(l => l.deal === 'sale').length)} / ${fa(mine.filter(l => l.deal === 'rent').length)}</b></div>
+      <div class="stat"><small>معامله شده</small><b>${fa(mine.filter(l => ['sold', 'rented'].includes(l.status)).length)}</b></div>
+      <div class="stat"><small>کل بازدید</small><b>${fa(mine.reduce((s, l) => s + (l.views || 0), 0))}</b></div>
+      <div class="stat"><small>درخواست جدید</small><b style="color:${newLeads ? 'var(--warn)' : ''}">${fa(newLeads)}</b></div>
+      ${admin ? `<div class="stat"><small>مشاور فعال</small><b>${fa(agents.length)}</b></div>` : ''}
+    </div>
+    <div class="seg" style="margin-bottom:12px">${tabs.map(([k, t]) => `<button data-t="${k}" class="${k === tab ? 'on' : ''}">${t}</button>`).join('')}</div>
+    <div id="pt"></div>`;
+  $$('.seg [data-t]').forEach(b => b.addEventListener('click', () => history.replaceState(null, '', '#panel/' + b.dataset.t) || viewPanel(b.dataset.t, true)));
+  const pt = $('#pt');
+  if (tab === 'listings') panelListings(pt, mine, agents);
+  else if (tab === 'leads') panelLeads(pt, leads, all);
+  else if (tab === 'agents' && admin) await panelAgents(pt, all, leads);
+  else if (tab === 'designs' && admin) await panelDesigns(pt);
+  else panelMe(pt);
+}
+
+function panelListings(pt, rows, agents) {
+  const admin = isAdmin(), F = S.pF || (S.pF = { agent: '', status: '', deal: '', q: '' });
+  pt.innerHTML = `<div class="grid3" style="margin-bottom:10px">
+      ${admin ? `<select id="fa">${opts(agents.map(a => [a.id, a.full_name]), F.agent, 'همه مشاوران')}</select>` : ''}
+      <select id="fs">${opts(Object.entries(STATUS).map(([k, v]) => [k, v[0]]), F.status, 'همه وضعیت‌ها')}</select>
+      <select id="fd">${opts([['sale', 'فروش'], ['rent', 'اجاره']], F.deal, 'فروش و اجاره')}</select>
+      <input id="fq" type="search" placeholder="جستجو یا کد" value="${esc(F.q)}"></div><div class="tbl" id="rows"></div>`;
+  const draw = () => {
+    const qn = toNum(F.q);
+    const r = rows.filter(l => (!F.agent || l.agent_id === F.agent) && (!F.status || l.status === F.status) && (!F.deal || l.deal === F.deal)
+      && (!F.q || l.id === qn || (l.title + l.district).includes(F.q)));
+    $('#rows').innerHTML = r.length ? r.map(l => `<div class="tr"><a href="#l/${l.id}"><img src="${esc(cover(l))}" alt="" loading="lazy"></a>
+      <div class="mid"><b>${esc(l.title)}</b><div class="small muted">کد ${fa(l.id)} · ${l.deal === 'sale' ? money(l.price) : 'رهن ' + money(l.deposit, false)} · ${fa(l.views)} بازدید
+      ${admin ? ` · ${esc(agentOf(l.agent_id)?.full_name || 'مشاور غیرفعال')}` : ''}</div>
+      <div class="row" style="margin-top:4px"><select data-st="${l.id}" style="width:auto;min-height:32px;padding:3px 8px;font-size:13px">${opts(Object.entries(STATUS).filter(([k]) => l.deal === 'sale' ? k !== 'rented' : k !== 'sold').map(([k, v]) => [k, v[0]]), l.status)}</select>
+      ${l.featured ? '<span class="tag warn">ویژه</span>' : ''}${l.verified ? '<span class="tag ok">تأیید شده</span>' : ''}</div></div>
+      <a class="btn sm" href="#edit/${l.id}">ویرایش</a></div>`).join('') : '<div class="empty">هیچ آگهی‌ای نیست. با دکمه «ثبت آگهی» شروع کنید.</div>';
+    $$('[data-st]').forEach(s => s.addEventListener('change', async () => {
+      const l = rows.find(x => x.id === +s.dataset.st);
+      try { await DB.saveListing({ id: l.id, status: s.value }, admin); l.status = s.value; S.listings = null; toast('وضعیت ذخیره شد', 1400); } catch (e) { toast(e.message); s.value = l.status; }
+    }));
+  };
+  [['fa', 'agent'], ['fs', 'status'], ['fd', 'deal']].forEach(([i, k]) => $('#' + i)?.addEventListener('change', e => { F[k] = e.target.value; draw(); }));
+  $('#fq').addEventListener('input', e => { F.q = e.target.value.trim(); draw(); });
+  draw();
+}
+
+function panelLeads(pt, leads, all) {
+  pt.innerHTML = leads.length ? `<div class="tbl">${leads.map(x => {
+    const l = all.find(y => y.id === x.listing_id);
+    return `<div class="tr" style="align-items:flex-start"><div class="mid">
+      <div class="row"><b style="flex:1">${esc(x.name)}</b><span class="small muted">${ago(x.created_at)}</span></div>
+      <div class="small">برای: ${l ? `<a href="#l/${l.id}">${esc(l.title)} (کد ${fa(l.id)})</a>` : '—'}${isAdmin() && l ? ` · مشاور: ${esc(agentOf(l.agent_id)?.full_name || '—')}` : ''}</div>
+      ${x.message ? `<div class="desc small muted" style="margin:4px 0">${esc(x.message)}</div>` : ''}
+      <div class="row"><a class="btn sm primary" href="tel:${esc(x.phone)}">${I.phone} ${esc(faStr(x.phone))}</a>
+      <a class="btn sm" href="https://wa.me/${esc(waPhone(x.phone))}" target="_blank" rel="noopener">واتس‌اپ</a><span class="spacer"></span>
+      <select data-ld="${x.id}" style="width:auto;min-height:32px;padding:3px 8px;font-size:13px">${opts(Object.entries(LEAD_ST).map(([k, v]) => [k, v[0]]), x.status)}</select></div></div></div>`;
+  }).join('')}</div>` : '<div class="empty">هنوز درخواستی از مشتریان نرسیده است.<br><span class="small">درخواست‌هایی که مشتریان زیر آگهی‌های شما می‌فرستند اینجا نمایش داده می‌شود.</span></div>';
+  $$('[data-ld]').forEach(s => s.addEventListener('change', async () => {
+    try { await DB.updateLead(+s.dataset.ld, { status: s.value }); toast('ذخیره شد', 1200); } catch (e) { toast(e.message); }
+  }));
+}
+
+async function panelAgents(pt, all, leads) {
+  const ps = await DB.profiles();
+  pt.innerHTML = `<p class="muted small" style="margin-top:0">مشاوران جدید از صفحه «ورود → ثبت‌نام مشاور جدید» ثبت‌نام می‌کنند و اینجا تأیید می‌شوند.
+    برای قطع دسترسی یک مشاور، او را «غیرفعال» کنید (آگهی‌هایش برای مدیریت باقی می‌ماند).</p>
+    <div class="tbl">${ps.map(p => {
+    const n = all.filter(l => l.agent_id === p.id), lc = leads.filter(x => n.some(l => l.id === x.listing_id)).length, self = p.id === S.me.id;
+    return `<div class="tr"><div class="avatar" style="width:44px;height:44px;font-size:17px">${esc((p.full_name || p.email || '؟')[0])}</div>
+      <div class="mid"><b>${esc(p.full_name || '(بدون نام)')} ${p.role === 'pending' ? '<span class="tag warn">منتظر تأیید</span>' : ''}${!p.active ? '<span class="tag bad">غیرفعال</span>' : ''}</b>
+      <div class="small muted" dir="ltr" style="text-align:right">${esc(p.email || '')} · ${esc(faStr(p.phone))}</div>
+      <div class="small muted">${fa(n.length)} آگهی · ${fa(n.filter(l => l.status === 'active').length)} فعال · ${fa(n.reduce((s, l) => s + l.views, 0))} بازدید · ${fa(lc)} درخواست</div>
+      ${self ? '<div class="small">(شما)</div>' : `<div class="row" style="margin-top:4px">
+        <select data-role="${p.id}" style="width:auto;min-height:32px;padding:3px 8px;font-size:13px">${opts(Object.entries(ROLES), p.role)}</select>
+        <label class="check small"><input type="checkbox" data-act="${p.id}"${p.active ? ' checked' : ''}> فعال</label>
+        ${p.role === 'pending' ? `<button class="btn sm primary" data-ok="${p.id}">تأیید به‌عنوان مشاور</button>` : ''}</div>`}</div></div>`;
+  }).join('')}</div>`;
+  const upd = async (id, patch) => { try { await DB.updateProfile(id, patch); S.agents = null; toast('ذخیره شد', 1200); viewPanel('agents'); } catch (e) { toast(e.message); } };
+  $$('[data-role]').forEach(s => s.addEventListener('change', () => {
+    if (s.value === 'admin' && !confirm('این کاربر دسترسی کامل ادمین می‌گیرد. مطمئنید؟')) return viewPanel('agents');
+    upd(s.dataset.role, { role: s.value });
+  }));
+  $$('[data-act]').forEach(c => c.addEventListener('change', () => upd(c.dataset.act, { active: c.checked })));
+  $$('[data-ok]').forEach(b => b.addEventListener('click', () => upd(b.dataset.ok, { role: 'agent' })));
+}
+
+async function panelDesigns(pt) {
+  const ds = await loadDesigns(true);
+  pt.innerHTML = `<div class="row" style="margin-bottom:10px"><span class="muted small" style="flex:1">این بخش را فقط ادمین مدیریت می‌کند و مشتری‌ها در تب «طراحی‌ها» می‌بینند.</span>
+    <a class="btn sm primary" href="#dedit/new">${I.plus} نمونه‌کار جدید</a></div>
+    <div class="tbl">${ds.map(d => `<div class="tr"><img src="${esc(imgSrc(d.images?.[0], d.id * 10))}" alt=""><div class="mid"><b>${esc(d.title)}</b>
+    <div class="small muted">${esc([d.style, d.space].filter(Boolean).join(' · '))} · ${fa(d.images?.length || 0)} عکس</div></div>
+    <a class="btn sm" href="#dedit/${d.id}">ویرایش</a></div>`).join('') || '<div class="empty">هنوز نمونه‌کاری نیست.</div>'}</div>`;
+}
+
+function panelMe(pt) {
+  const m = S.me;
+  pt.innerHTML = `<form class="card stack" id="pf" style="max-width:520px">
+    <label class="f"><span>نام و نام خانوادگی</span><input name="full_name" value="${esc(m.full_name)}" required></label>
+    <label class="f"><span>موبایل (روی آگهی‌ها به مشتری نمایش داده می‌شود)</span><input name="phone" inputmode="tel" value="${esc(m.phone)}"></label>
+    <label class="f"><span>معرفی کوتاه</span><input name="bio" value="${esc(m.bio || '')}" placeholder="مثلا: متخصص آپارتمان‌های منطقه ۲" maxlength="120"></label>
+    <button class="btn primary">ذخیره</button></form>
+    ${DEMO ? '' : `<form class="card stack" id="pw" style="max-width:520px;margin-top:12px"><b>تغییر رمز عبور</b>
+      <input name="pw" type="password" minlength="6" required placeholder="رمز جدید" dir="ltr" autocomplete="new-password"><button class="btn">تغییر رمز</button></form>`}
+    <button class="btn danger" id="out" style="margin-top:12px">خروج از حساب</button>`;
+  $('#pf').addEventListener('submit', async e => {
+    e.preventDefault(); const f = Object.fromEntries(new FormData(e.target));
+    try { await DB.updateProfile(m.id, f); Object.assign(S.me, f); S.agents = null; renderChrome('panel'); toast('ذخیره شد'); } catch (err) { toast(err.message); }
+  });
+  $('#pw')?.addEventListener('submit', async e => { e.preventDefault(); try { await DB.setPassword(e.target.pw.value); e.target.reset(); toast('رمز تغییر کرد'); } catch (err) { toast(err.message); } });
+  $('#out').addEventListener('click', logout);
+}
+
+/* ---------- آپلودر عکس (مشترک بین آگهی و طراحی) ---------- */
+function uploader(el, list, max = 20) {
+  const draw = () => {
+    el.innerHTML = list.map((u, i) => `<div class="im"><img src="${esc(imgSrc(u, i))}" alt="">${i === 0 ? '<span class="first">کاور</span>' : `<span class="first" style="background:rgb(0 0 0/.55);cursor:pointer" data-cv="${i}">کاور کن</span>`}<button type="button" data-rm="${i}" aria-label="حذف">×</button></div>`).join('')
+      + (list.length < max ? `<label class="add">${I.plus}<span>افزودن عکس</span><input type="file" accept="image/*" multiple hidden></label>` : '');
+    $$('[data-rm]', el).forEach(b => b.addEventListener('click', () => { list.splice(+b.dataset.rm, 1); draw(); }));
+    $$('[data-cv]', el).forEach(b => b.addEventListener('click', () => { const [x] = list.splice(+b.dataset.cv, 1); list.unshift(x); draw(); }));
+    $('input', el)?.addEventListener('change', async e => {
+      const files = [...e.target.files].slice(0, max - list.length);
+      const add = $('.add', el); add.innerHTML = '<div class="spin" style="margin:0"></div>'; el.dataset.busy = 1;
+      for (const f of files) { try { list.push(await DB.upload(f)); } catch (err) { toast(err.message); } }
+      delete el.dataset.busy; draw();
+    });
+  };
+  draw();
+}
+
+/* ---------- فرم ثبت / ویرایش آگهی ---------- */
+async function viewEdit(arg) {
+  const all = await loadListings(true), agents = await loadAgents(), admin = isAdmin();
+  const isNew = arg === 'new';
+  const l = isNew ? { deal: S.lastList === 'rent' ? 'rent' : 'sale', ptype: 'apartment', features: [], images: [], status: 'active', city: '' } : all.find(x => x.id === +arg);
+  if (!l || (!isNew && !canEdit(l))) { view().innerHTML = `<div class="empty">${I.empty}<p>این آگهی پیدا نشد یا اجازه ویرایش آن را ندارید.</p></div>`; return; }
+  const priv = isNew ? {} : (await DB.getPrivate(l.id).catch(() => null)) || {};
+  const imgs = [...(l.images || [])], feats = new Set(l.features || []);
+  const num = (n, label, v, ph = '', hint = false) => `<label class="f"><span>${label}</span><input name="${n}" inputmode="${n === 'floor' ? 'text' : 'numeric'}" value="${v != null && v !== '' ? (hint ? fa(v) : faStr(v)) : ''}" placeholder="${ph}" ${hint ? 'data-money' : ''}>${hint ? '<small class="hint" style="display:block;color:var(--accent);min-height:1.4em"></small>' : ''}</label>`;
+  view().innerHTML = `<button class="back" onclick="history.back()">${I.back} بازگشت</button>
+  <h2 style="margin-bottom:12px">${isNew ? 'ثبت آگهی جدید' : `ویرایش آگهی کد ${fa(l.id)}`}</h2>
+  <form id="ef" class="stack" novalidate>
+    <div class="card stack">
+      <div class="seg" id="deal"><button type="button" data-d="sale" class="${l.deal === 'sale' ? 'on' : ''}">فروش</button><button type="button" data-d="rent" class="${l.deal === 'rent' ? 'on' : ''}">رهن و اجاره</button></div>
+      <div class="grid2"><label class="f"><span>نوع ملک</span><select name="ptype">${opts(Object.entries(PTYPES), l.ptype)}</select></label>
+        <label class="f"><span>وضعیت</span><select name="status">${opts(Object.entries(STATUS).map(([k, v]) => [k, v[0]]), l.status)}</select></label></div>
+      <label class="f"><span>عنوان آگهی *</span><input name="title" required maxlength="120" value="${esc(l.title || '')}" placeholder="مثلا: آپارتمان ۱۲۰ متری نوساز با ویو ابدی"></label>
+      <div class="grid2"><label class="f"><span>شهر</span><input name="city" value="${esc(l.city || '')}" placeholder="تهران"></label>
+        <label class="f"><span>محله *</span><input name="district" required value="${esc(l.district || '')}" placeholder="سعادت‌آباد"></label></div>
+    </div>
+    <div class="card stack"><h3>قیمت (تومان)</h3>
+      <div id="psale" ${l.deal === 'sale' ? '' : 'hidden'}>${num('price', 'قیمت کل', l.price, 'مثلا ۱۴۵۰۰۰۰۰۰۰۰ — صفر یعنی توافقی', true)}</div>
+      <div id="prent" class="grid2" ${l.deal === 'rent' ? '' : 'hidden'}>${num('deposit', 'رهن / ودیعه', l.deposit, '', true)}${num('rent', 'اجاره ماهانه (۰ = رهن کامل)', l.rent, '', true)}</div>
+    </div>
+    <div class="card stack"><h3>مشخصات</h3>
+      <div class="grid3">${num('area', 'متراژ بنا (متر)', l.area)}${num('land_area', 'متراژ زمین', l.land_area)}${num('rooms', 'اتاق خواب', l.rooms)}
+        ${num('floor', 'طبقه (زیرزمین: ‎-۱)', l.floor)}${num('floors', 'تعداد طبقات', l.floors)}${num('year_built', 'سال ساخت', l.year_built, '۱۴۰۰')}</div>
+      <div><span class="muted small">امکانات</span><div class="chips" id="fe" style="margin-top:4px">${FEATURES.map(f => `<button type="button" class="chip${feats.has(f) ? ' on' : ''}" data-f="${f}">${f}</button>`).join('')}</div></div>
+      <label class="f"><span>توضیحات</span><textarea name="description" maxlength="4000" rows="5">${esc(l.description || '')}</textarea></label>
+    </div>
+    <div class="card stack"><h3>عکس‌ها</h3><p class="muted small" style="margin:0">عکس اول، کاور آگهی است. عکس‌ها قبل از ارسال کم‌حجم می‌شوند.</p><div class="upl" id="up"></div></div>
+    <div class="card stack private"><h3>🔒 اطلاعات محرمانه</h3><p class="muted small" style="margin:0">فقط شما و ادمین می‌بینید؛ هرگز به مشتری نمایش داده نمی‌شود.</p>
+      <div class="grid2"><label class="f"><span>نام مالک</span><input name="owner_name" value="${esc(priv.owner_name || '')}"></label>
+        <label class="f"><span>تلفن مالک</span><input name="owner_phone" inputmode="tel" value="${esc(priv.owner_phone || '')}"></label></div>
+      <label class="f"><span>آدرس دقیق</span><input name="exact_address" value="${esc(priv.exact_address || '')}"></label>
+      <label class="f"><span>یادداشت داخلی</span><textarea name="notes" rows="2">${esc(priv.notes || '')}</textarea></label>
+    </div>
+    ${admin ? `<div class="card stack"><h3>تنظیمات ادمین</h3>
+      <label class="f"><span>مشاور مسئول این آگهی</span><select name="agent_id">${opts([...agents.map(a => [a.id, a.full_name]), ...(l.agent_id && !agents.some(a => a.id === l.agent_id) ? [[l.agent_id, 'مشاور فعلی (غیرفعال)']] : [])], l.agent_id || S.me.id)}</select></label>
+      <div class="row"><label class="check"><input type="checkbox" name="featured"${l.featured ? ' checked' : ''}> آگهی ویژه (بالای فهرست)</label>
+      <label class="check"><input type="checkbox" name="verified"${l.verified ? ' checked' : ''}> نشان «تأیید شده»</label></div></div>` : ''}
+    <div class="row"><button class="btn primary" style="flex:1" id="sv">${isNew ? 'ثبت آگهی' : 'ذخیره تغییرات'}</button>${isNew ? '' : '<button type="button" class="btn danger" id="del">حذف</button>'}</div>
+  </form>`;
+  let deal = l.deal;
+  $$('#deal button').forEach(b => b.addEventListener('click', () => { deal = b.dataset.d; $$('#deal button').forEach(x => x.classList.toggle('on', x === b)); $('#psale').hidden = deal !== 'sale'; $('#prent').hidden = deal !== 'rent'; }));
+  $$('#fe .chip').forEach(b => b.addEventListener('click', () => { feats.has(b.dataset.f) ? feats.delete(b.dataset.f) : feats.add(b.dataset.f); b.classList.toggle('on'); }));
+  $$('[data-money]').forEach(i => { const h = () => { const n = toNum(i.value); i.nextElementSibling.textContent = n != null ? money(n) : ''; }; i.addEventListener('input', h); h(); });
+  uploader($('#up'), imgs);
+  $('#ef').addEventListener('submit', async e => {
+    e.preventDefault();
+    if ($('#up').dataset.busy) return toast('صبر کنید تا آپلود عکس‌ها تمام شود');
+    const f = e.target, v = n => f[n]?.value?.trim() ?? '', n = k => toNum(v(k));
+    if (!v('title')) return toast('عنوان آگهی را وارد کنید'), f.title.focus();
+    if (!v('district')) return toast('محله را وارد کنید'), f.district.focus();
+    if (deal === 'rent' && n('deposit') == null && n('rent') == null) return toast('مبلغ رهن یا اجاره را وارد کنید');
+    const rec = {
+      ...(isNew ? {} : { id: l.id }), deal, ptype: v('ptype'), status: v('status'), title: v('title'), city: v('city'), district: v('district'),
+      price: deal === 'sale' ? n('price') : null, deposit: deal === 'rent' ? n('deposit') : null, rent: deal === 'rent' ? n('rent') : null,
+      area: n('area'), land_area: n('land_area'), rooms: n('rooms'), floor: toInt(v('floor')), floors: n('floors'), year_built: n('year_built'),
+      features: [...feats], description: v('description'), images: imgs,
+      ...(admin ? { agent_id: v('agent_id'), featured: f.featured.checked, verified: f.verified.checked } : {})
+    };
+    const b = $('#sv'); b.disabled = true;
+    try {
+      const saved = await DB.saveListing(rec, admin);
+      await DB.savePrivate(saved.id, { owner_name: v('owner_name'), owner_phone: v('owner_phone'), exact_address: v('exact_address'), notes: v('notes') });
+      S.listings = null; toast(isNew ? 'آگهی ثبت شد' : 'ذخیره شد'); go('l/' + saved.id);
+    } catch (err) { toast(err.message); b.disabled = false; }
+  });
+  $('#del')?.addEventListener('click', async () => {
+    if (!confirm('این آگهی برای همیشه حذف شود؟ (برای پنهان کردن موقت، وضعیت را «مخفی» کنید)')) return;
+    try { await DB.deleteListing(l.id); S.listings = null; toast('حذف شد'); go('panel'); } catch (err) { toast(err.message); }
+  });
+}
+
+/* ---------- فرم نمونه‌کار طراحی (فقط ادمین) ---------- */
+async function viewDesignEdit(arg) {
+  const isNew = arg === 'new', d = isNew ? { images: [] } : (await loadDesigns(true)).find(x => x.id === +arg);
+  if (!d) return go('designs');
+  const imgs = [...(d.images || [])], before = d.before_image ? [d.before_image] : [];
+  view().innerHTML = `<button class="back" onclick="history.back()">${I.back} بازگشت</button>
+  <h2 style="margin-bottom:12px">${isNew ? 'نمونه‌کار طراحی جدید' : 'ویرایش نمونه‌کار'}</h2>
+  <form id="df" class="stack"><div class="card stack">
+    <label class="f"><span>عنوان *</span><input name="title" required value="${esc(d.title || '')}" placeholder="مثلا: بازطراحی پذیرایی آپارتمان ۱۴۰ متری"></label>
+    <div class="grid2"><label class="f"><span>فضا</span><input name="space" list="spl" value="${esc(d.space || '')}"><datalist id="spl">${SPACES.map(s => `<option value="${s}">`).join('')}</datalist></label>
+      <label class="f"><span>سبک</span><input name="style" list="stl" value="${esc(d.style || '')}"><datalist id="stl">${STYLES.map(s => `<option value="${s}">`).join('')}</datalist></label>
+      <label class="f"><span>محل</span><input name="city" value="${esc(d.city || '')}"></label>
+      <label class="f"><span>متراژ</span><input name="area" inputmode="numeric" value="${d.area ? fa(d.area) : ''}"></label></div>
+    <label class="f"><span>توضیحات</span><textarea name="description" rows="4">${esc(d.description || '')}</textarea></label></div>
+    <div class="card stack"><h3>عکس‌های «بعد» از اجرا</h3><div class="upl" id="up"></div></div>
+    <div class="card stack"><h3>عکس «قبل» (اختیاری)</h3><p class="muted small" style="margin:0">اگر بگذارید، کنار عکس کاور به‌صورت قبل/بعد نمایش داده می‌شود.</p><div class="upl" id="ub"></div></div>
+    <div class="row"><button class="btn primary" style="flex:1" id="sv">ذخیره</button>${isNew ? '' : '<button type="button" class="btn danger" id="del">حذف</button>'}</div>
+  </form>`;
+  uploader($('#up'), imgs, 30); uploader($('#ub'), before, 1);
+  $('#df').addEventListener('submit', async e => {
+    e.preventDefault();
+    if ($('#up').dataset.busy || $('#ub').dataset.busy) return toast('صبر کنید تا آپلود تمام شود');
+    if (!imgs.length) return toast('حداقل یک عکس اضافه کنید');
+    const f = e.target;
+    try {
+      const s = await DB.saveDesign({ ...(isNew ? {} : { id: d.id }), title: f.title.value.trim(), space: f.space.value.trim(), style: f.style.value.trim(), city: f.city.value.trim(),
+        area: toNum(f.area.value), description: f.description.value.trim(), images: imgs, before_image: before[0] || null });
+      S.designs = null; toast('ذخیره شد'); go('d/' + s.id);
+    } catch (err) { toast(err.message); }
+  });
+  $('#del')?.addEventListener('click', async () => { if (!confirm('حذف شود؟')) return; try { await DB.deleteDesign(d.id); S.designs = null; go('designs'); } catch (err) { toast(err.message); } });
+}
+
+/* ---------------- شروع ---------------- */
+(async () => {
+  renderChrome('sale');
+  try { await DB.init(); S.me = await DB.me(); }
+  catch (e) { view().innerHTML = `<div class="empty">${I.empty}<p>${esc(e.message)}</p><button class="btn" onclick="location.reload()">تلاش دوباره</button></div>`; return; }
+  addEventListener('hashchange', route);
+  route();
+  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => { });
+})();
