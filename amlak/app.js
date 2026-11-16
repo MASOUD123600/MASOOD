@@ -1,7 +1,7 @@
 'use strict';
 /* سامانه املاک — اپ تک‌صفحه‌ای.
    سه نوع کاربر: مشتری (بدون ورود، فقط مشاهده)، مشاور (آگهی‌های خودش)، ادمین (همه‌چیز).
-   داده‌ها در Supabase؛ اگر تنظیم نشده باشد «حالت نمایشی» با localStorage. */
+   داده‌ها در گیت‌هاب (مثل سامانه مضیف)؛ با ?demo در آدرس «حالت نمایشی» با localStorage. */
 
 const CFG = window.AMLAK_CONFIG || {};
 const DEMO = !CFG.publicRepo || /[?&]demo\b/.test(location.search);
