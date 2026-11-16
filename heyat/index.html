@@ -164,6 +164,7 @@ h3{font-size:14px;margin:0;font-weight:700}
 .cooktbl th,.cooktbl td{padding:7px 4px}
 .cooktbl td:first-child{white-space:normal}
 .hcard{display:flex;flex-direction:column;gap:10px}
+.xbox{display:flex;flex-direction:column;gap:8px;border:1px solid var(--line);border-radius:12px;padding:12px}
 .selbox{display:flex;align-items:center;gap:10px;cursor:pointer;min-width:0}
 .selbox input{width:22px;height:22px;flex:none;accent-color:var(--bad)}
 .hhead{display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap}
@@ -363,13 +364,19 @@ nav.bottom button[aria-current="page"]{color:var(--accent);font-weight:800}
 
   <!-- ========== REPORT ========== -->
   <section class="view" id="v-report" hidden>
-    <div class="card" style="display:flex;flex-direction:column;gap:10px">
-      <h2>خروجی اکسل (CSV)</h2>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn" id="expDay">نوبت‌های روز انتخاب‌شده</button>
-        <button class="btn" id="expAll">همه نوبت‌ها</button>
+    <div class="card" style="display:flex;flex-direction:column;gap:12px">
+      <h2>خروجی اکسل</h2>
+      <div class="xbox">
+        <h3>کل نوبت‌ها</h3>
+        <p class="muted" style="margin:0;font-size:13px">مثل فایل خودتان: هر چند روز پشت سر هم (مثل دهه اول و دوم) یک برگه، با ستون روزها، جمع هر روز، ساعت و کد تحویل؛ به‌اضافه برگه «پخت روزانه» و «دفتر هیئت‌ها».</p>
+        <div class="grid2"><label class="f"><span>از</span><select id="xFrom"></select></label><label class="f"><span>تا</span><select id="xTo"></select></label></div>
+        <button class="btn primary" id="expAll">دانلود اکسل کل نوبت‌ها</button>
       </div>
-      <p class="muted" id="expNote" style="margin:0;font-size:12px"></p>
+      <div class="xbox">
+        <h3>یک روز (جزئی)</h3>
+        <p class="muted" style="margin:0;font-size:13px">همه هیئت‌های روز انتخاب‌شده (<span id="expDayLbl"></span>) با سهم، تحویلی، وضعیت، ساعت تحویل و ثبت‌کننده. روز را از بالای صفحه عوض کنید.</p>
+        <button class="btn primary" id="expDay">دانلود اکسل این روز</button>
+      </div>
     </div>
     <div class="card">
       <h2 style="margin-bottom:8px">جمع هر هیئت (۶۰ روز اخیر)</h2>
@@ -417,6 +424,7 @@ nav.bottom button[aria-current="page"]{color:var(--accent);font-weight:800}
 </div></nav>
 <div class="toast" id="toast" hidden></div>
 
+<script src="xlsxw.js"></script>
 <script src="app.js"></script>
 
 </body>
