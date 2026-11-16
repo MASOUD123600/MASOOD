@@ -530,6 +530,7 @@ async function sampleExcel(){
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(aoa),'نوبت‌ها');XLSX.writeFile(wb,'mozif-sample.xlsx');
 }
 function renderReport(){
+  fillExportRange();$('#expDayLbl').textContent=dFull(S.date)+' — '+jNum(S.date);
   const from=addDays(todayISO(),-60);
   const agg={};allocs().filter(a=>active(a)&&a.date>=from).forEach(a=>{const r=agg[a.heyat]=agg[a.heyat]||{n:0,alloc:0,deliv:0,miss:0};r.n++;r.alloc+=Number(a.qty);if(a.status==='delivered')r.deliv+=Number(a.deliveredQty??a.qty);else if(a.date<todayISO())r.miss++});
   const rows=Object.entries(agg).sort((a,b)=>b[1].alloc-a[1].alloc);
@@ -593,15 +594,154 @@ async function saveForm(e){
   $('#fSave').disabled=false;
   if(ok){S.lastShare={heyatId:hId,code:a.code};(S.openDays=S.openDays||new Set()).add(a.date);resetForm();render();$('#shareBox').scrollIntoView({behavior:'smooth',block:'center'})}
 }
-function csv(list){
-  const st={pending:'در انتظار',delivered:'تحویل شده',cancelled:'لغو'};
-  const head=['تاریخ','روز','ساعت','هیئت','نماینده','تلفن','معرف','سهم','تحویلی','وضعیت','کد','زمان تحویل','ثبت توسط','توضیح'];
-  const rows=list.map(a=>[jNum(a.date),dShort(a.date),en(tWin(a)),a.heyat,a.rep,a.phone,a.ref||'',a.qty,a.status==='delivered'?(a.deliveredQty??a.qty):'',st[a.status]||a.status,a.code,a.deliveredAt?fStamp.format(new Date(a.deliveredAt)):'',a.deliveredBy,a.note]);
-  return '﻿'+[head,...rows].map(r=>r.map(v=>{v=String(v??'');return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v}).join(',')).join('\r\n');
+/* ================= styled Excel export (same layout as the team's own sheets) ================= */
+const XS={
+  title:{b:1,sz:18,font:'B Titr',h:'center',color:'1C6A4B'},
+  hd:{b:1,sz:14,font:'B Titr',h:'center',border:1,fill:'D9E7DD',wrap:1},
+  hdBig:{b:1,sz:16,font:'B Titr',h:'center',border:1,fill:'D9E7DD',wrap:1},
+  hdDay:{b:1,sz:14,font:'B Titr',h:'center',border:1,fill:'FCE9C2'},
+  idx:{sz:13,font:'B Mitra',h:'center',border:1,fmt:'@'},
+  txt:{b:1,sz:14,font:'B Nazanin',h:'center',border:1,wrap:1},
+  tel:{b:1,sz:14,font:'B Nazanin',h:'center',border:1,fmt:'@'},
+  num:{b:1,sz:14,font:'B Nazanin',h:'center',border:1,fmt:'#,##0'},
+  numOk:{b:1,sz:14,font:'B Nazanin',h:'center',border:1,fmt:'#,##0',fill:'C6EFCE'},
+  numLess:{b:1,sz:14,font:'B Nazanin',h:'center',border:1,fmt:'#,##0',fill:'FFEB9C'},
+  numMiss:{b:1,sz:14,font:'B Nazanin',h:'center',border:1,fmt:'#,##0',fill:'F8CBAD'},
+  codeSent:{b:1,sz:14,font:'B Nazanin',h:'center',border:1,fill:'92D050',fmt:'@'},
+  codeNew:{b:1,sz:14,font:'B Nazanin',h:'center',border:1,fill:'FFFF00',fmt:'@'},
+  sumLbl:{b:1,sz:14,font:'B Titr',h:'center',border:1,fill:'EDEDED'},
+  sum:{b:1,sz:15,font:'B Nazanin',h:'center',border:1,fill:'EDEDED',fmt:'#,##0'},
+  big:{b:1,sz:18,font:'B Nazanin',h:'center',border:1,fmt:'#,##0'},
+  bigCook:{b:1,sz:20,font:'B Nazanin',h:'center',border:1,fmt:'#,##0',fill:'FCE9C2'},
+  dateCell:{b:1,sz:16,font:'B Nazanin',h:'center',border:1,wrap:1},
+  note:{sz:12,font:'B Nazanin',h:'right',wrap:1},
+  stOk:{b:1,sz:13,font:'B Nazanin',h:'center',border:1,fill:'C6EFCE'},
+  stLess:{b:1,sz:13,font:'B Nazanin',h:'center',border:1,fill:'FFEB9C'},
+  stMiss:{b:1,sz:13,font:'B Nazanin',h:'center',border:1,fill:'F8CBAD'},
+  stWait:{b:1,sz:13,font:'B Nazanin',h:'center',border:1},
+};
+const C=XLSXW.colName;
+const jDate=s=>jNum(s);                       // ۱۴۰۵/۰۸/۱۷
+const wd=s=>fWd.format(parseISO(s));
+const codeVal=c=>String(c||'');
+const delivQ=a=>Number(a.deliveredQty??a.qty);
+function cellFor(a){ // a day cell in the grid
+  if(!a)return {v:'',s:XS.num};
+  if(a.status==='delivered')return {v:delivQ(a),s:delivQ(a)<Number(a.qty)?XS.numLess:XS.numOk};
+  return {v:Number(a.qty),s:a.date<todayISO()?XS.numMiss:XS.num};
 }
-function exportCsv(list,name){
-  const url=URL.createObjectURL(new Blob([csv(list)],{type:'text/csv;charset=utf-8'}));
-  const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);
+const legendRows=()=>[{h:22,cells:[null,{v:'راهنمای رنگ‌ها:  سبز = تحویل شد · زرد = کمتر از سهم برد · قرمز = نیامد · ستون کد: سبز = پیام فرستاده شد، زرد = پیام فرستاده نشده',s:XS.note}]}];
+/* blocks of consecutive days (like دهه اول / دهه دوم) */
+function dayBlocks(dates){
+  const out=[];let cur=[];
+  for(const d of dates){if(cur.length&&(addDays(cur[cur.length-1],1)!==d||cur.length>=14)){out.push(cur);cur=[]}cur.push(d)}
+  if(cur.length)out.push(cur);return out;
+}
+function blockName(b){const p1=jParts(b[0]),p2=jParts(b[b.length-1]);
+  return b.length===1?dShort(b[0]):p1.month===p2.month?`${faDig(p1.day)} تا ${dShort(b[b.length-1])}`:`${dShort(b[0])} تا ${dShort(b[b.length-1])}`}
+function gridSheet(dates,list){
+  const nd=dates.length,c0=4,cT=c0+nd,cCode=cT+1,cRef=cT+2,cSum=cT+3,last=cSum;
+  const byH=new Map();
+  for(const a of list){const k=a.heyatId||a.heyat;if(!byH.has(k))byH.set(k,[]);byH.get(k).push(a)}
+  const hs=[...byH.values()].map(l=>({l,h:heyatById(l[0].heyatId)||{name:l[0].heyat,rep:l[0].rep,phone:l[0].phone,ref:l[0].ref},code:l[0].code}))
+    .sort((x,y)=>(x.code.length-y.code.length)||x.code.localeCompare(y.code)||x.h.name.localeCompare(y.h.name,'fa'));
+  const first=5,lastData=first+hs.length-1,rows=[];
+  // row 1: totals
+  const tot=dates.map(d=>list.filter(a=>a.date===d).reduce((s,a)=>s+(a.status==='delivered'?delivQ(a):Number(a.qty)),0));
+  const r1=[];r1[3]={v:'جمع',s:XS.sumLbl};
+  dates.forEach((d,i)=>r1[c0+i]={f:`SUM(${C(c0+i)}${first}:${C(c0+i)}${Math.max(first,lastData)})`,v:tot[i],s:XS.sum});
+  r1[cSum]={f:`SUM(${C(c0)}1:${C(c0+nd-1)}1)`,v:tot.reduce((s,x)=>s+x,0),s:XS.sum};
+  rows.push({h:34,cells:r1});
+  // rows 2-4: header
+  const h2=[{v:'ردیف',s:XS.hd},{v:'هیئت',s:XS.hdBig},{v:'مسئول هیئت',s:XS.hdBig},{v:'شماره تماس',s:XS.hdBig}],h3=[null,null,null,null],h4=[null,null,null,null];
+  for(let i=1;i<4;i++){h3[i]={v:'',s:XS.hdBig};h4[i]={v:'',s:XS.hdBig}}h3[0]={v:'',s:XS.hd};h4[0]={v:'',s:XS.hd};
+  dates.forEach((d,i)=>{h2[c0+i]={v:jParts(d).day,s:XS.hdDay};h3[c0+i]={v:wd(d),s:XS.hdDay};h4[c0+i]={v:jDate(d),s:XS.hdDay}});
+  [[cT,'ساعت تحویل'],[cCode,'کد تحویل'],[cRef,'معرف'],[cSum,'جمع هیئت']].forEach(([c,t])=>{h2[c]={v:t,s:XS.hd};h3[c]={v:'',s:XS.hd};h4[c]={v:'',s:XS.hd}});
+  rows.push({h:40,cells:h2},{h:36,cells:h3},{h:36,cells:h4});
+  // data
+  hs.forEach((x,i)=>{
+    const r=[{v:String(i+1),s:XS.idx},{v:x.h.name,s:XS.txt},{v:x.h.rep||'-',s:XS.txt},{v:normPhone(x.h.phone)||'-',s:XS.tel}];
+    dates.forEach((d,j)=>{r[c0+j]=cellFor(x.l.find(a=>a.date===d))});
+    const wins=[...new Set(x.l.map(a=>en(tWin(a)).replace(/\s+/g,' ')))];
+    r[cT]={v:wins.join(' ؛ '),s:XS.tel};
+    const codes=[...new Set(x.l.map(a=>codeVal(a.code)))];
+    r[cCode]={v:codes.join(' ، '),s:x.l.every(a=>a.msgAt)?XS.codeSent:XS.codeNew};
+    r[cRef]={v:x.h.ref||'',s:XS.txt};
+    r[cSum]={f:`SUM(${C(c0)}${first+i}:${C(c0+nd-1)}${first+i})`,v:x.l.reduce((s,a)=>s+(a.status==='delivered'?delivQ(a):Number(a.qty)),0),s:XS.sum};
+    rows.push({h:30,cells:r});
+  });
+  // bottom total
+  const rb=[{v:'',s:XS.sumLbl},{v:'جمع کل',s:XS.sumLbl},{v:`${fa(hs.length)} هیئت`,s:XS.sumLbl},{v:'',s:XS.sumLbl}];
+  dates.forEach((d,i)=>rb[c0+i]={f:`${C(c0+i)}1`,v:tot[i],s:XS.sum});
+  [cT,cCode,cRef].forEach(c=>rb[c]={v:'',s:XS.sumLbl});rb[cSum]={f:`${C(cSum)}1`,v:tot.reduce((s,x)=>s+x,0),s:XS.sum};
+  rows.push({h:34,cells:rb},null,...legendRows());
+  const merges=[0,1,2,3,cT,cCode,cRef,cSum].map(c=>`${C(c)}2:${C(c)}4`);merges.push(`B${rows.length}:${C(last)}${rows.length}`);
+  const cols=[6,38,26,20,...dates.map(()=>13.5),22,16,20,13];
+  return {cols,rows,merges,freeze:'E5',landscape:true};
+}
+function cookSheet(dates){
+  const rows=[{h:36,cells:[{v:'تاریخ',s:XS.hd},{v:'روز',s:XS.hd},{v:'تعداد هیئت',s:XS.hd},{v:'سهم هیئت‌ها',s:XS.hd},{v:'نیروهای آشپزخانه',s:XS.hd},{v:'باید پخته شود',s:XS.hd},{v:'پخت ثبت‌شده',s:XS.hd},{v:'تحویل‌شده',s:XS.hd},{v:'مانده',s:XS.hd}]}];
+  dates.forEach((d,i)=>{const st=dayStats(d),r=i+2;
+    rows.push({h:44,cells:[{v:`روز ${fa(i+1)}\n${jDate(d)}`,s:XS.dateCell},{v:wd(d),s:XS.dateCell},{v:st.n,s:XS.big},{v:st.alloc,s:XS.big},{v:st.staffQty,s:XS.big},
+      {f:`D${r}+E${r}`,v:st.alloc+st.staffQty,s:XS.bigCook},st.hasProd?{v:st.prod,s:XS.big}:{v:'',s:XS.big},{v:st.deliv+st.staffGiven,s:XS.big},{v:st.pend,s:XS.big}]})});
+  const n=dates.length+1,sum=c=>({f:`SUM(${c}2:${c}${n})`,s:XS.sum});
+  rows.push({h:38,cells:[{v:'جمع',s:XS.sumLbl},{v:'',s:XS.sumLbl},sum('C'),sum('D'),sum('E'),sum('F'),sum('G'),sum('H'),sum('I')]});
+  rows.forEach((r,i)=>{if(i>0&&i<=dates.length)return;});
+  return {name:'پخت روزانه',cols:[18,14,12,15,17,17,15,14,12],rows,freeze:'A2'};
+}
+function dirSheet(){
+  const t=todayISO();
+  const rows=[{h:36,cells:['ردیف','هیئت','نماینده','شماره','معرف','کد تحویل','تعداد نوبت','جمع سهم','تحویل‌شده','نیامده'].map(v=>({v,s:XS.hd}))}];
+  heyats().slice().sort((a,b)=>a.name.localeCompare(b.name,'fa')).forEach((h,i)=>{
+    const l=allocs().filter(a=>a.heyatId===h.id&&active(a));
+    rows.push({h:28,cells:[{v:String(i+1),s:XS.idx},{v:h.name,s:XS.txt},{v:h.rep||'-',s:XS.txt},{v:normPhone(h.phone)||'-',s:XS.tel},{v:h.ref||'',s:XS.txt},
+      {v:[...new Set(l.map(a=>a.code))].join(' ، '),s:XS.tel},{v:l.length,s:XS.num},{v:l.reduce((s,a)=>s+Number(a.qty),0),s:XS.num},
+      {v:l.filter(a=>a.status==='delivered').reduce((s,a)=>s+delivQ(a),0),s:XS.num},{v:l.filter(a=>a.status==='pending'&&a.date<t).length||'',s:XS.num}]})});
+  return {name:'دفتر هیئت‌ها',cols:[6,36,24,18,20,22,12,13,13,10],rows,freeze:'C2'};
+}
+function daySheet(d){
+  const list=forDay(d).filter(active),st=dayStats(d),t=todayISO();
+  const rows=[{h:40,cells:[{v:`مضیف الزهرا (س) — نوبت‌های روز ${wd(d)} ${jDate(d)}`,s:XS.title}]},
+    {h:32,cells:[null,{v:'پخت ثبت‌شده',s:XS.hd},{v:st.hasProd?st.prod:'',s:XS.big},{v:'سهم هیئت‌ها',s:XS.hd},{v:st.alloc,s:XS.big},{v:'نیروهای آشپزخانه',s:XS.hd},{v:st.staffQty,s:XS.big}]},
+    {h:32,cells:[null,{v:'باید پخته شود',s:XS.hd},{v:st.alloc+st.staffQty,s:XS.bigCook},{v:'تحویل‌شده',s:XS.hd},{v:st.deliv,s:XS.big},{v:'مانده برای تحویل',s:XS.hd},{v:st.pend,s:XS.big}]},
+    null,
+    {h:36,cells:['ردیف','هیئت','مسئول هیئت','شماره تماس','معرف','ساعت تحویل','کد تحویل','سهم','تحویلی','وضعیت','زمان تحویل','ثبت توسط','توضیح'].map(v=>({v,s:XS.hd}))}];
+  const first=6;
+  list.forEach((a,i)=>{const done=a.status==='delivered',less=done&&delivQ(a)<Number(a.qty),miss=!done&&a.date<t;
+    rows.push({h:28,cells:[{v:String(i+1),s:XS.idx},{v:a.heyat,s:XS.txt},{v:a.rep||'-',s:XS.txt},{v:normPhone(a.phone)||'-',s:XS.tel},{v:a.ref||'',s:XS.txt},
+      {v:en(tWin(a)),s:XS.tel},{v:codeVal(a.code),s:a.msgAt?XS.codeSent:XS.codeNew},{v:Number(a.qty),s:XS.num},{v:done?delivQ(a):'',s:done?(less?XS.numLess:XS.numOk):XS.num},
+      {v:done?(less?'کمتر از سهم':'تحویل شد'):miss?'نیامد':'در انتظار',s:done?(less?XS.stLess:XS.stOk):miss?XS.stMiss:XS.stWait},
+      {v:done?en(fClock.format(new Date(a.deliveredAt))):'',s:XS.tel},{v:a.deliveredBy||'',s:XS.txt},{v:a.note||'',s:XS.txt}]})});
+  const L=first+list.length-1;
+  rows.push({h:34,cells:[{v:'',s:XS.sumLbl},{v:'جمع',s:XS.sumLbl},{v:`${fa(list.length)} هیئت`,s:XS.sumLbl},{v:'',s:XS.sumLbl},{v:'',s:XS.sumLbl},{v:'',s:XS.sumLbl},{v:'',s:XS.sumLbl},
+    {f:`SUM(H${first}:H${Math.max(first,L)})`,v:st.alloc+0,s:XS.sum},{f:`SUM(I${first}:I${Math.max(first,L)})`,v:st.deliv,s:XS.sum},{v:'',s:XS.sumLbl},{v:'',s:XS.sumLbl},{v:'',s:XS.sumLbl},{v:'',s:XS.sumLbl}]},null,...legendRows());
+  return {name:dLong(d),cols:[6,34,24,18,18,18,16,11,11,14,12,14,22],rows,merges:['A1:M1',`B${rows.length}:M${rows.length}`],freeze:'C6',landscape:true};
+}
+function saveXlsx(sheets,fname){
+  const bytes=XLSXW.build(sheets);
+  const url=URL.createObjectURL(new Blob([bytes],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+  const a=document.createElement('a');a.href=url;a.download=fname;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),4000);
+}
+const fileDate=d=>{const p=jParts(d);return p.year+'-'+pad(p.month)+'-'+pad(p.day)};
+function exportAll(){
+  const from=$('#xFrom').value,to=$('#xTo').value;
+  const list=allocs().filter(a=>active(a)&&(!from||a.date>=from)&&(!to||a.date<=to));
+  if(!list.length)return toast('در این بازه نوبتی نیست');
+  const dates=[...new Set(list.map(a=>a.date))].sort();
+  const sheets=dayBlocks(dates).map(b=>({...gridSheet(b,list.filter(a=>b.includes(a.date))),name:blockName(b)}));
+  sheets.push(cookSheet(dates),dirSheet());
+  saveXlsx(sheets,`mozif-nobat-${fileDate(dates[0])}_${fileDate(dates[dates.length-1])}.xlsx`);
+}
+function exportDay(){
+  if(!forDay(S.date).filter(active).length)return toast('در این روز نوبتی نیست');
+  saveXlsx([daySheet(S.date)],`mozif-${fileDate(S.date)}.xlsx`);
+}
+function fillExportRange(){
+  const ds=[...new Set(allocs().filter(active).map(a=>a.date))].sort();
+  const opts=ds.map(d=>`<option value="${d}">${esc(dLong(d))} — ${jNum(d)}</option>`).join('');
+  const f=$('#xFrom'),t=$('#xTo'),fv=f.value,tv=t.value;
+  f.innerHTML='<option value="">از اولین روز</option>'+opts;t.innerHTML='<option value="">تا آخرین روز</option>'+opts;
+  if(ds.includes(fv))f.value=fv;if(ds.includes(tv))t.value=tv;
 }
 
 /* ================= events ================= */
@@ -665,8 +805,8 @@ $('#fHeyat').addEventListener('change',()=>{
   if(S.editingId)return;const n=norm($('#fHeyat').value);const m=heyats().filter(h=>norm(h.name)===n);S.formHeyatId=null;
   if(m.length===1)bookFor(m[0],true);else if(m.length>1)toast('چند هیئت با این نام هست؛ از «دفتر» انتخاب کنید یا شماره را وارد کنید');
 });
-$('#expDay').addEventListener('click',()=>exportCsv(forDay(S.date),'mozif-'+S.date+'.csv'));
-$('#expAll').addEventListener('click',()=>exportCsv(allocs().slice().sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time)),'mozif-all.csv'));
+$('#expDay').addEventListener('click',exportDay);
+$('#expAll').addEventListener('click',exportAll);
 
 /* directory, messages, Excel import, message template */
 function markSent(hId,code){
