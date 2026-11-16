@@ -761,13 +761,13 @@ function viewSetup() {
     <div class="card"><b>مشاور هستید؟</b><p class="muted small" style="margin:4px 0 0">لینک دعوتی را که مدیر بنگاه در واتس‌اپ برایتان فرستاده روی همین گوشی باز کنید و رمزتان را بزنید. کار دیگری لازم نیست.</p></div>
     <details class="card" id="adm"><summary style="cursor:pointer"><b>راه‌اندازی توسط مدیر — فقط یک بار</b></summary>
       <ol class="small" style="padding-inline-start:18px;line-height:2">
-        <li>در گیت‌هاب یک مخزن جدید <b>Private</b> بسازید (نام دلخواه، مثلا <span dir="ltr">amlak-private</span>).</li>
-        <li>Settings → Developer settings → Personal access tokens → <b>Fine-grained tokens</b> → Generate new token</li>
-        <li>Repository access: <b>Only select repositories</b> → همان مخزن خصوصی <b>و</b> مخزن <b dir="ltr">${esc(PUB_REPO.split('/')[1])}</b></li>
-        <li>Permissions → Repository permissions → <b>Contents: Read and write</b> — مدت اعتبار مثلا ۱ سال</li>
+        <li><a href="https://github.com/new?name=amlak-private&visibility=private&description=%D8%A7%D8%B7%D9%84%D8%A7%D8%B9%D8%A7%D8%AA%20%D9%85%D8%AD%D8%B1%D9%85%D8%A7%D9%86%D9%87%20%D8%A7%D9%BE%20%D8%A7%D9%85%D9%84%D8%A7%DA%A9" target="_blank" rel="noopener"><b>این لینک</b></a> را باز کنید و فقط دکمه سبز <b>Create repository</b> را بزنید (نام و Private از قبل پر شده).</li>
+        <li><a href="https://github.com/settings/personal-access-tokens/new?name=amlak-app&description=amlak%20app&expires_in=366&contents=write" target="_blank" rel="noopener"><b>این لینک</b></a> را باز کنید. در Repository access گزینه <b>Only select repositories</b> را بزنید و دو مخزن را انتخاب کنید: <b dir="ltr">amlak-private</b> و <b dir="ltr">${esc(PUB_REPO.split('/')[1])}</b>.</li>
+        <li>در Permissions مطمئن شوید <b>Contents</b> روی <b>Read and write</b> است، بعد <b>Generate token</b> را بزنید و توکن را کپی کنید.</li>
+        <li>اینجا نام مخزن را به شکل <span dir="ltr">${esc(PUB_REPO.split('/')[0])}/amlak-private</span> و توکن را paste کنید.</li>
       </ol>
       <form class="stack" id="sf">
-        <input name="repo" required placeholder="نام‌کاربری/نام‌مخزن‌خصوصی" dir="ltr" autocomplete="off">
+        <input name="repo" required placeholder="نام‌کاربری/نام‌مخزن‌خصوصی" dir="ltr" autocomplete="off" value="${esc(PUB_REPO.split('/')[0])}/amlak-private">
         <input name="token" required placeholder="github_pat_…" dir="ltr" autocomplete="off" type="password">
         <div id="newAdm" class="stack" hidden><p class="small" style="margin:0;color:var(--accent)">مخزن آماده است. اطلاعات خودتان را برای ساخت حساب مدیر وارد کنید:</p>
           <input name="full_name" placeholder="نام و نام خانوادگی"><input name="phone" inputmode="tel" placeholder="موبایل (به مشتری نمایش داده می‌شود)">
