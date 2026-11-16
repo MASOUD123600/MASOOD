@@ -164,6 +164,8 @@ h3{font-size:14px;margin:0;font-weight:700}
 .cooktbl th,.cooktbl td{padding:7px 4px}
 .cooktbl td:first-child{white-space:normal}
 .hcard{display:flex;flex-direction:column;gap:10px}
+.selbox{display:flex;align-items:center;gap:10px;cursor:pointer;min-width:0}
+.selbox input{width:22px;height:22px;flex:none;accent-color:var(--bad)}
 .hhead{display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap}
 .hcard .who{font-family:var(--display);color:var(--accent);font-size:22px;line-height:1.3}
 .futs{display:flex;flex-direction:column;gap:4px;background:var(--sunk);border-radius:10px;padding:10px 12px;font-size:13.5px;font-variant-numeric:tabular-nums}
@@ -337,6 +339,7 @@ nav.bottom button[aria-current="page"]{color:var(--accent);font-weight:800}
         <span class="muted num" id="dirCount" style="font-size:13px"></span>
       </div>
     </div>
+    <div id="selBar" class="card"></div>
     <div id="dirList" class="daylist"></div>
     <form class="card" id="hForm" style="display:flex;flex-direction:column;gap:12px" autocomplete="off">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><h2 id="hTitle">هیئت جدید</h2><button type="button" class="btn sm" id="hCancel" hidden>انصراف</button></div>
@@ -395,6 +398,12 @@ nav.bottom button[aria-current="page"]{color:var(--accent);font-weight:800}
       <p class="muted" style="margin:0;font-size:13px">این چهار کلمه خودکار پر می‌شوند، دست نزنید: <b>{مخاطب}</b> نام نماینده و هیئت · <b>{روزها}</b> تاریخ و تعداد هر روز · <b>{ساعت}</b> ساعت تحویل · <b>{کد}</b> کد تحویل</p>
       <textarea id="tplIn" rows="12" style="font-size:13px;line-height:1.8"></textarea>
       <div class="acts2"><button type="button" class="btn primary" id="tplSave">ذخیره متن</button><button type="button" class="btn" id="tplReset">برگشت به متن اولیه</button></div>
+    </div>
+    <div class="card" style="display:flex;flex-direction:column;gap:10px;border-color:var(--bad)">
+      <h2>پاک کردن همه اطلاعات</h2>
+      <p class="muted" style="margin:0;font-size:13px">همه هیئت‌ها، نوبت‌ها و پخت روزها پاک می‌شود و برنامه از صفر شروع می‌شود. متن پیام و اتصال گوشی‌ها می‌ماند. این کار برگشت ندارد. برای تأیید بنویسید: <b>پاک کن</b></p>
+      <input id="wipeIn" autocomplete="off" placeholder="پاک کن">
+      <button type="button" class="btn danger" id="wipeBtn">پاک کردن همه اطلاعات</button>
     </div>
   </section>
 </div>
