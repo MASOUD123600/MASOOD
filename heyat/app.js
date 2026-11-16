@@ -215,7 +215,7 @@ function setView(v){
   S.view=v;VIEWS.forEach(k=>$('#v-'+k).hidden=k!==v);
   document.querySelectorAll('nav.bottom button').forEach(b=>b.setAttribute('aria-current',b.dataset.v===v?'page':'false'));
   if(location.hash!=='#'+v)try{history.replaceState(null,'','#'+v)}catch(e){}
-  if(v==='settings'){$('#cRepo').value=CFG?.repo||'';$('#cToken').value=CFG?.token||'';$('#cName').value=CFG?.name||'';$('#cForget').hidden=!CFG;$('#tplIn').value=DATA.settings?.msgTpl||DEFAULT_TPL}
+  if(v==='settings'){$('#cRepo').value='';$('#cToken').value='';$('#cRepo').required=$('#cToken').required=!CFG;$('#cRepo').placeholder=CFG?'وصل است — فقط برای تغییر پر کنید':'user/repo';$('#cToken').placeholder=CFG?'ذخیره شده — فقط برای تغییر پر کنید':'github_pat_…';$('#cName').value=CFG?.name||'';$('#cForget').hidden=!CFG;$('#tplIn').value=DATA.settings?.msgTpl||DEFAULT_TPL}
   render();if(v==='deliver')setTimeout(()=>$('#codeIn').focus(),50);
 }
 function render(){
@@ -898,8 +898,8 @@ $('#tplReset').addEventListener('click',e=>armed(e.target,'به متن اولی�
 /* settings */
 $('#cfgForm').addEventListener('submit',async e=>{
   e.preventDefault();
-  const repo=$('#cRepo').value.trim().replace(/^https?:\/\/github\.com\//,'').replace(/\.git$/,'').replace(/\/$/,'');
-  const cfg={repo,token:$('#cToken').value.trim(),name:$('#cName').value.trim()};
+  const repo=($('#cRepo').value.trim()||CFG?.repo||'').replace(/^https?:\/\/github\.com\//,'').replace(/\.git$/,'').replace(/\/$/,'');
+  const cfg={repo,token:$('#cToken').value.trim()||CFG?.token||'',name:$('#cName').value.trim()};
   const msg=$('#cMsg');
   if(!/^[\w.-]+\/[\w.-]+$/.test(repo)){msg.innerHTML='<div class="banner bad">نام مخزن باید به شکل <b dir="ltr">user/repo</b> باشد.</div>';return}
   $('#cSave').disabled=true;msg.innerHTML='<div class="banner warn">در حال بررسی اتصال…</div>';
