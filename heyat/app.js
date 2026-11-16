@@ -356,14 +356,27 @@ function heyatCard(h){
   const codes=[...new Set(fut.map(a=>a.code))],code=codes.join('، '),p=normPhone(h.phone);
   const sum=l=>l.reduce((s,a)=>s+Number(a.status==='delivered'?(a.deliveredQty??a.qty):a.qty),0);
   return `<div class="card hcard">
-    <div class="hhead"><div class="who">${esc(h.name)}</div>${unsent(h)?'<span class="chip warn">پیام ارسال نشده</span>':fut.length?'<span class="chip ok">پیام ارسال شده</span>':''}</div>
+    <div class="hhead"><label class="selbox"><input type="checkbox" data-sel="${h.id}" ${S.sel?.has(h.id)?'checked':''} aria-label="انتخاب ${esc(h.name)}"><span class="who">${esc(h.name)}</span></label>${unsent(h)?'<span class="chip warn">پیام ارسال نشده</span>':fut.length?'<span class="chip ok">پیام ارسال شده</span>':''}</div>
     <dl class="kv"><dt>نماینده</dt><dd>${esc(h.rep||'—')}</dd><dt>شماره</dt><dd>${p?`<a class="tel" href="tel:${p}">${faDig(p)}</a>`:'—'}</dd>
       <dt>معرف</dt><dd>${h.ref?`<button type="button" class="linkbtn" data-hact="ref" data-ref="${esc(h.ref)}">${esc(h.ref)}</button>`:'—'}</dd>
       ${code?`<dt>کد تحویل</dt><dd class="num">${faDig(code)}</dd>`:''}${h.note?`<dt>توضیح</dt><dd>${esc(h.note)}</dd>`:''}
       <dt>تا حالا</dt><dd class="num">${fa(done.length)} بار گرفته (${fa(sum(done))} پرس)${miss.length?' · <span class="chip bad">'+fa(miss.length)+' بار نیامده</span>':''}</dd></dl>
     ${fut.length?`<div class="futs"><b>نوبت‌های پیش‌رو (${fa(sum(fut))} پرس)</b>${fut.map(a=>`<span>${jNum(a.date)} · ${esc(fWd.format(parseISO(a.date)))} · ${fa(a.qty)} پرس · ساعت ${tWin(a)}</span>`).join('')}</div>`:'<div class="muted" style="font-size:13px">نوبت پیش‌رو ندارد.</div>'}
-    ${codes.map(c=>`<div class="acts2">${codes.length>1?`<span class="muted num" style="font-size:13px">پیام کد ${faDig(c)}:</span>`:''}${msgButtons(h.id,c)}</div>`).join('')}<div class="acts2"><button type="button" class="btn sm primary" data-hact="book" data-id="${h.id}">نوبت جدید</button><button type="button" class="btn sm" data-hact="edit" data-id="${h.id}">ویرایش</button>${mine.length?'':`<button type="button" class="btn sm danger" data-hact="del" data-id="${h.id}">حذف</button>`}</div>
+    ${codes.map(c=>`<div class="acts2">${codes.length>1?`<span class="muted num" style="font-size:13px">پیام کد ${faDig(c)}:</span>`:''}${msgButtons(h.id,c)}</div>`).join('')}<div class="acts2"><button type="button" class="btn sm primary" data-hact="book" data-id="${h.id}">نوبت جدید</button><button type="button" class="btn sm" data-hact="edit" data-id="${h.id}">ویرایش</button><button type="button" class="btn sm danger" data-hact="del" data-id="${h.id}">${nAll(h.id)?'حذف با '+fa(nAll(h.id))+' نوبت':'حذف'}</button></div>
   </div>`;
+}
+const nAll=id=>allocs().filter(a=>a.heyatId===id).length;
+function delHeyats(ids){
+  const set=new Set(ids);let nh=0,na=0;
+  return act(()=>commit(d=>{nh=d.heyats.filter(h=>set.has(h.id)).length;na=d.allocs.filter(a=>set.has(a.heyatId)).length;
+    const names=d.heyats.filter(h=>set.has(h.id)).map(h=>h.name);
+    d.heyats=d.heyats.filter(h=>!set.has(h.id));d.allocs=d.allocs.filter(a=>!set.has(a.heyatId));
+    logEntry(d,'heyat',`حذف ${fa(nh)} هیئت با ${fa(na)} نوبت: ${names.slice(0,12).join('، ')}${names.length>12?' و …':''}`)},'delete heyats'),'').then(ok=>{if(ok){toast(`حذف شد: ${fa(nh)} هیئت و ${fa(na)} نوبت`);ids.forEach(i=>S.sel?.delete(i));S.openDays=null;render()}});
+}
+function selBar(visibleIds){
+  const n=S.sel?.size||0;
+  $('#selBar').innerHTML=`<div class="acts2"><button type="button" class="btn sm" id="selAll">انتخاب همه موارد این فهرست (${fa(visibleIds.length)})</button>${n?`<button type="button" class="btn sm" id="selNone">لغو انتخاب</button><button type="button" class="btn sm danger" id="selDel">حذف ${fa(n)} هیئت انتخاب‌شده با همه نوبت‌هایشان</button>`:''}</div>`;
+  S.visibleIds=visibleIds;
 }
 function renderDir(){
   const q=$('#dirQ').value,tab=S.dirTab||'heyat';
@@ -382,11 +395,12 @@ function renderDir(){
     let res=all.filter(h=>!q.trim()||matchQ(hayOf(h),q));
     const nq=norm(q);if(nq){const rank=h=>{const n=norm(h.name);return n===nq?0:n.startsWith(nq)?1:n.includes(nq)?2:3};res.sort((a,b)=>rank(a)-rank(b))}
     if(tab==='unsent')res=res.filter(unsent);
-    count=`${fa(res.length)} هیئت${res.length!==all.length?' از '+fa(all.length):''}`;
+    count=`${fa(res.length)} هیئت${res.length!==all.length?' از '+fa(all.length):''}`;S.visRes=res.map(h=>h.id);
     html=res.slice(0,40).map(heyatCard).join('')+(res.length>40?`<div class="empty">${fa(res.length-40)} هیئت دیگر هم هست؛ جستجو را دقیق‌تر کنید.</div>`:'')
       ||`<div class="empty">${all.length?'چیزی پیدا نشد.':'هنوز هیئتی ثبت نشده. از پایین همین صفحه هیئت اضافه کنید یا فایل اکسل بارگذاری کنید.'}</div>`;
   }
   $('#dirCount').textContent=count;$('#dirList').innerHTML=html;
+  S.sel=S.sel||new Set();$('#selBar').hidden=tab==='ref';if(tab!=='ref')selBar(S.visRes||[]);
 }
 function bookFor(h,keepDate){
   if(!keepDate){setView('plan');resetForm()}
@@ -669,11 +683,21 @@ document.addEventListener('click',async e=>{
   const h=heyatById(hb.dataset.id);if(!h)return;
   if(k==='book')return bookFor(h);
   if(k==='edit')return editHeyat(h);
-  if(k==='del')return armed(hb,'حذف شود؟ دوباره بزنید',()=>act(()=>commit(d=>{if(d.allocs.some(a=>a.heyatId===h.id))throw new Error('این هیئت نوبت دارد و حذف نمی‌شود');d.heyats=d.heyats.filter(x=>x.id!==h.id);logEntry(d,'heyat','حذف '+h.name)},'delete heyat'),'حذف شد'));
+  if(k==='del')return armed(hb,'حذف شود؟ دوباره بزنید',()=>delHeyats([h.id]));
   if(k==='copy'){const txt=buildMsg(h.id,hb.dataset.code);try{await navigator.clipboard.writeText(txt);toast('متن پیام کپی شد')}catch(_){toast('کپی نشد؛ متن را دستی انتخاب کنید');return}markSent(h.id,hb.dataset.code);return}
   if(k==='sent')markSent(h.id,hb.dataset.code); // the link itself opens WhatsApp / SMS
 });
 $('#dirQ').addEventListener('input',renderDir);
+$('#dirList').addEventListener('change',e=>{const id=e.target.dataset.sel;if(!id)return;S.sel=S.sel||new Set();e.target.checked?S.sel.add(id):S.sel.delete(id);selBar(S.visRes||[])});
+$('#selBar').addEventListener('click',e=>{
+  if(e.target.id==='selAll'){(S.visRes||[]).forEach(i=>S.sel.add(i));renderDir()}
+  if(e.target.id==='selNone'){S.sel.clear();renderDir()}
+  if(e.target.id==='selDel'){const ids=[...S.sel];const na=allocs().filter(a=>ids.includes(a.heyatId)).length;armed(e.target,`${fa(ids.length)} هیئت و ${fa(na)} نوبت پاک شود؟ دوباره بزنید`,()=>delHeyats(ids))}
+});
+$('#wipeBtn').addEventListener('click',()=>{
+  if(en($('#wipeIn').value).trim()!=='پاک کن')return toast('برای تأیید، در خانه بالا بنویسید: پاک کن');
+  act(()=>commit(d=>{const nh=(d.heyats||[]).length,na=(d.allocs||[]).length;d.heyats=[];d.allocs=[];d.days={};logEntry(d,'wipe',`پاک کردن همه اطلاعات: ${fa(nh)} هیئت، ${fa(na)} نوبت`)},'wipe all'),'همه اطلاعات پاک شد').then(ok=>{if(ok){$('#wipeIn').value='';S.sel?.clear();S.openDays=null;render()}});
+});
 $('#dirTabs').addEventListener('click',e=>{const b=e.target.closest('button[data-t]');if(b){S.dirTab=b.dataset.t;renderDir()}});
 $('#hForm').addEventListener('submit',saveHeyat);
 $('#hCancel').addEventListener('click',()=>editHeyat(null));
