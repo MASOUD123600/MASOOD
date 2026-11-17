@@ -317,6 +317,14 @@ function GitHubDB() {
     },
     async deleteDesign(id) { if (!admin()) deny(); await mutate(d => { d.designs = d.designs.filter(y => y.id !== id); }, 'حذف نمونه‌کار'); },
     async addLead() { }, async leads() { return []; }, async updateLead() { },
+    // حجم مخازن (گیت‌هاب با کمی تأخیر به‌روز می‌کند)
+    async storage() {
+      if (!admin()) return [];
+      const t = tgt(), list = [[t.repo, 'آگهی‌ها و عکس‌ها'], [dev.repo, 'اطلاعات محرمانه']];
+      const r = await Promise.all(list.map(([repo, label]) => gh(`/repos/${repo}`).then(x => ({ label, kb: x.size || 0 }), () => null)));
+      const photos = new Set(); P.listings.forEach(l => (l.images || []).forEach(u => photos.add(u))); P.designs.forEach(d => (d.images || []).forEach(u => photos.add(u)));
+      return { repos: r.filter(Boolean), photos: photos.size };
+    },
     needsMigration: () => !!(P && dev?.uid && admin() && !P.pub && OLD_PUB),
     // انتقال یک‌باره عکس‌ها و آگهی‌های عمومی از مخزن سایت به مخزن جدا
     async migrate(progress = () => { }) {
@@ -353,7 +361,7 @@ function GitHubDB() {
     },
     async upload(file) {
       if (!staff()) deny();
-      const blob = await compress(file, 1600, .8);
+      const blob = await compress(file, 1280, .74);
       const data = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(String(fr.result).split(',')[1]); fr.readAsDataURL(blob); });
       const path = `img/${new Date().toISOString().slice(0, 7)}/${uid8()}.jpg`;
       const t = tgt();
@@ -868,7 +876,7 @@ async function logout() { await DB.signOut(); S.me = null; invalidate(); go('sal
    ===================================================================== */
 async function viewPanel(tab, reuse) {
   tab = tab || 'listings';
-  if (!reuse || !S.panel) S.panel = await Promise.all([loadListings(true), loadAgents(true), DB.leads()]);
+  if (!reuse || !S.panel) { S.panel = await Promise.all([loadListings(true), loadAgents(true), DB.leads()]); S.storage = null; }
   const [all, agents, leads] = S.panel;
   const admin = isAdmin();
   const mine = admin ? all : all.filter(l => l.agent_id === S.me.id);
@@ -879,6 +887,7 @@ async function viewPanel(tab, reuse) {
     <div class="row" style="margin-bottom:12px"><h2 style="flex:1">${admin ? 'پنل مدیریت' : 'پنل مشاور'}</h2>
       <a class="btn primary" href="#edit/new">${I.plus} ثبت آگهی</a></div>
     <div id="mig"></div>
+    ${admin && DB.storage ? '<div id="stor"></div>' : ''}
     <div class="stats" style="margin-bottom:14px">
       <div class="stat"><small>آگهی فعال</small><b>${fa(mine.filter(l => l.status === 'active').length)}</b></div>
       <div class="stat"><small>فروش / اجاره</small><b>${fa(mine.filter(l => l.deal === 'sale').length)} / ${fa(mine.filter(l => l.deal === 'rent').length)}</b></div>
@@ -892,11 +901,28 @@ async function viewPanel(tab, reuse) {
   $$('.seg [data-t]').forEach(b => b.addEventListener('click', () => history.replaceState(null, '', '#panel/' + b.dataset.t) || viewPanel(b.dataset.t, true)));
   const pt = $('#pt');
   if (DB.needsMigration?.()) runMigration();
+  if ($('#stor')) showStorage();
   if (tab === 'listings') panelListings(pt, mine, agents);
   else if (tab === 'leads' && DB.caps.leads) panelLeads(pt, leads, all);
   else if (tab === 'agents' && admin) await panelAgents(pt, all, leads);
   else if (tab === 'designs' && admin) await panelDesigns(pt);
   else panelMe(pt);
+}
+
+async function showStorage() {
+  const st = S.storage || (S.storage = await DB.storage().catch(() => null));
+  const box = $('#stor'); if (!box || !st?.repos?.length) return;
+  const LIMIT = 1024 * 1024;   // ۱ گیگابایت = حد توصیه‌شده گیت‌هاب برای هر مخزن (کیلوبایت)
+  const size = kb => kb < 1024 ? fa(kb) + ' کیلوبایت' : kb < LIMIT ? fa(Math.round(kb / 1024)) + ' مگابایت' : (kb / LIMIT).toLocaleString('fa-IR', { maximumFractionDigits: 1 }) + ' گیگابایت';
+  const worst = Math.max(...st.repos.map(r => r.kb / LIMIT));
+  box.innerHTML = `<details class="card" style="margin-bottom:14px${worst >= .7 ? ';border-color:var(--' + (worst >= .9 ? 'bad' : 'warn') + ')' : ''}"${worst >= .7 ? ' open' : ''}>
+    <summary style="cursor:pointer"><b>فضای ذخیره</b> <span class="small muted">· ${fa(Math.round(worst * 100))}٪ پر · ${fa(st.photos)} عکس</span></summary>
+    <div class="stack" style="margin-top:10px">${st.repos.map(r => {
+      const pc = Math.min(1, r.kb / LIMIT), col = pc >= .9 ? 'var(--bad)' : pc >= .7 ? 'var(--warn)' : 'var(--accent)';
+      return `<div><div class="row small"><span style="flex:1">${r.label}</span><span class="muted">${size(r.kb)} از ۱ گیگابایت</span></div>
+        <div style="height:8px;border-radius:99px;background:var(--sunk);overflow:hidden;margin-top:4px"><div style="height:100%;width:${Math.max(1, pc * 100)}%;background:${col};border-radius:99px"></div></div></div>`;
+    }).join('')}
+    <div class="small muted">${worst >= .9 ? '⚠️ نزدیک حد توصیه‌شده است؛ برای انتقال عکس‌ها به فضای دیگر اقدام کنید.' : worst >= .7 ? 'بیش از ۷۰٪ پر شده؛ کم‌کم برای فضای بیشتر برنامه‌ریزی کنید.' : 'هر عکس حدود ۱۵۰ کیلوبایت است. گیت‌هاب این عدد را با چند ساعت تأخیر به‌روز می‌کند.'}</div></div></details>`;
 }
 
 let migrating = false;
@@ -1048,11 +1074,13 @@ function panelMe(pt) {
 function uploader(el, list, max = 20) {
   const draw = () => {
     el.innerHTML = list.map((u, i) => `<div class="im"><img src="${esc(imgSrc(u, i))}" alt="">${i === 0 ? '<span class="first">کاور</span>' : `<span class="first" style="background:rgb(0 0 0/.55);cursor:pointer" data-cv="${i}">کاور کن</span>`}<button type="button" data-rm="${i}" aria-label="حذف">×</button></div>`).join('')
-      + (list.length < max ? `<label class="add">${I.plus}<span>افزودن عکس</span><input type="file" accept="image/*" multiple hidden></label>` : '');
+      + (list.length < max ? `<label class="add">${I.plus}<span>افزودن عکس</span><input type="file" accept="image/*" multiple hidden></label>` : '')
+      + (max > 1 ? `<div class="small muted" style="grid-column:1/-1">${fa(list.length)} از ${fa(max)} عکس${list.length >= max ? ' — به حداکثر رسیده' : ''}</div>` : '');
     $$('[data-rm]', el).forEach(b => b.addEventListener('click', () => { list.splice(+b.dataset.rm, 1); draw(); }));
     $$('[data-cv]', el).forEach(b => b.addEventListener('click', () => { const [x] = list.splice(+b.dataset.cv, 1); list.unshift(x); draw(); }));
     $('input', el)?.addEventListener('change', async e => {
       const files = [...e.target.files].slice(0, max - list.length);
+      if (e.target.files.length > files.length) toast(`حداکثر ${fa(max)} عکس مجاز است؛ ${fa(files.length)} عکس اول اضافه می‌شود`, 3500);
       const add = $('.add', el); add.innerHTML = '<div class="spin" style="margin:0"></div>'; el.dataset.busy = 1;
       for (const f of files) { try { list.push(await DB.upload(f)); } catch (err) { toast(err.message); } }
       delete el.dataset.busy; draw();
@@ -1108,7 +1136,7 @@ async function viewEdit(arg) {
   $$('#deal button').forEach(b => b.addEventListener('click', () => { deal = b.dataset.d; $$('#deal button').forEach(x => x.classList.toggle('on', x === b)); $('#psale').hidden = deal !== 'sale'; $('#prent').hidden = deal !== 'rent'; }));
   $$('#fe .chip').forEach(b => b.addEventListener('click', () => { feats.has(b.dataset.f) ? feats.delete(b.dataset.f) : feats.add(b.dataset.f); b.classList.toggle('on'); }));
   $$('[data-money]').forEach(i => { const h = () => { const n = toNum(i.value); i.nextElementSibling.textContent = n != null ? money(n) : ''; }; i.addEventListener('input', h); h(); });
-  uploader($('#up'), imgs);
+  uploader($('#up'), imgs, 12);
   $('#ef').addEventListener('submit', async e => {
     e.preventDefault();
     if ($('#up').dataset.busy) return toast('صبر کنید تا آپلود عکس‌ها تمام شود');
@@ -1154,7 +1182,7 @@ async function viewDesignEdit(arg) {
     <div class="card stack"><h3>عکس «قبل» (اختیاری)</h3><p class="muted small" style="margin:0">اگر بگذارید، کنار عکس کاور به‌صورت قبل/بعد نمایش داده می‌شود.</p><div class="upl" id="ub"></div></div>
     <div class="row"><button class="btn primary" style="flex:1" id="sv">ذخیره</button>${isNew ? '' : '<button type="button" class="btn danger" id="del">حذف</button>'}</div>
   </form>`;
-  uploader($('#up'), imgs, 30); uploader($('#ub'), before, 1);
+  uploader($('#up'), imgs, 20); uploader($('#ub'), before, 1);
   $('#df').addEventListener('submit', async e => {
     e.preventDefault();
     if ($('#up').dataset.busy || $('#ub').dataset.busy) return toast('صبر کنید تا آپلود تمام شود');
