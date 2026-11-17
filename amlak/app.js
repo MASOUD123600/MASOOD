@@ -159,6 +159,13 @@ function GitHubDB() {
   }
   const me = () => P?.staff.find(s => s.id === dev?.uid) || null;
   const pubMe = u => u && (({ salt, hash, ...rest }) => rest)(u);
+  const device = () => { const a = navigator.userAgent; return /iPhone|iPad/.test(a) ? 'آیفون' : /Android/.test(a) ? 'اندروید' : /Windows/.test(a) ? 'ویندوز' : /Mac/.test(a) ? 'مک' : 'دیگر'; };
+  // ثبت ورود (فقط مدیر اصلی می‌بیند)؛ اگر نشد، ورود را خراب نکن
+  const noteLogin = (id, action) => mutate(d => {
+    const u = d.staff.find(x => x.id === id); if (!u) return;
+    const at = new Date().toISOString(); u.last_login = at; u.logins = (u.logins || 0) + 1;
+    d.log = [{ uid: id, at, action, device: device() }, ...(d.log || [])].slice(0, 300);
+  }, 'ورود', false).catch(() => { });
   const admin = () => me()?.active && me()?.role === 'admin';
   const staff = () => me()?.active && ['admin', 'agent'].includes(me()?.role);
   const owns = l => l && (admin() || (staff() && l.agent_id === dev.uid));
@@ -224,7 +231,9 @@ function GitHubDB() {
     caps: { leads: false, views: false, signup: false, github: true },
     deviceLinked: () => !!dev?.token,
     async init() { if (dev?.token) { try { await loadPriv(); } catch (e) { if (e.status === 401) { dev = null; store.set('amlak-device', null); } else throw e; } } },
-    async me() { const m = me(); return dev?.uid && m ? clone(pubMe(m)) : null; },
+    async me() { const m = me(); return dev?.uid && m ? { ...clone(pubMe(m)), owner: m.id === ownerId() } : null; },
+    isOwner: () => !!dev?.uid && dev.uid === ownerId(),
+    async activity() { if (dev?.uid !== ownerId()) deny(); await loadPriv(); return { staff: P.staff.map(s => clone(pubMe(s))), log: clone(P.log || []) }; },
     // دستگاهی که با «رمز مخزن» وصل شده (مدیر) می‌تواند حساب مدیر تازه بسازد؛ دستگاهی که با لینک دعوت وصل شده نه
     deviceKind: () => dev?.kind || (P?.staff.find(s => s.id === dev?.uid)?.role === 'admin' ? 'admin' : 'agent'),
     // ورود با نوشتن نام (بدون نمایش فهرست کارمندان)
@@ -235,7 +244,7 @@ function GitHubDB() {
         if (!await checkPw(u, pw)) throw new Error('نام یا رمز اشتباه است');
         if (!u.active) throw new Error('حساب شما غیرفعال شده است');
         if (!dev.kind) dev.kind = u.role === 'admin' ? 'admin' : 'agent';
-        dev.uid = u.id; store.set('amlak-device', dev); return 'in';
+        dev.uid = u.id; store.set('amlak-device', dev); await noteLogin(u.id, 'login'); return 'in';
       }
       if (!allowCreate || this.deviceKind() !== 'admin') throw new Error('نام یا رمز اشتباه است');
       if (pw.length < 6) throw new Error('رمز باید حداقل ۶ حرف باشد');
@@ -244,7 +253,7 @@ function GitHubDB() {
         if (d.staff.some(s => normName(s.full_name) === normName(name))) throw new Error('این نام همین الان ثبت شد؛ دوباره وارد شوید');
         d.staff.push({ id, full_name: name.trim(), phone: '', bio: '', role: 'admin', active: true, ...h, created_at: new Date().toISOString() });
       }, 'مدیر جدید');
-      dev.uid = id; store.set('amlak-device', dev); return 'created';
+      dev.uid = id; store.set('amlak-device', dev); await noteLogin(id, 'created'); return 'created';
     },
     nameExists: name => !!P?.staff.some(s => normName(s.full_name) === normName(name)),
     async signIn(id, pw) {
@@ -281,7 +290,7 @@ function GitHubDB() {
       dev = { repo: inv.repo, token: inv.token, uid: null, kind: 'agent' };
       try { await loadPriv(); } catch (e) { dev = null; throw e.status === 401 ? new Error('این لینک دعوت باطل شده است؛ از مدیر لینک تازه بگیرید') : e; }
       store.set('amlak-device', dev);
-      await this.signIn(inv.uid, pw);
+      await this.signIn(inv.uid, pw); await noteLogin(inv.uid, 'join');
     },
     async makeInvite(id, pw) { if (!admin()) deny(); return sealInvite(pw, { repo: dev.repo, token: dev.token, uid: id }); },
     async setPassword(pw, id = dev.uid) {
@@ -292,7 +301,7 @@ function GitHubDB() {
     async addStaff(p) {
       if (!admin()) deny();
       if (P.staff.some(s => normName(s.full_name) === normName(p.full_name))) throw new Error('این نام قبلا ثبت شده است؛ نام را کمی متفاوت بنویسید (مثلا با نام خانوادگی)');
-      const h = await hashPw(p.pw), u = { id: uid8(), full_name: p.full_name, phone: p.phone, bio: '', role: p.role || 'agent', active: true, ...h, created_at: new Date().toISOString() };
+      const h = await hashPw(p.pw), u = { id: uid8(), full_name: p.full_name, phone: p.phone, bio: '', role: dev.uid === ownerId() && p.role === 'admin' ? 'admin' : 'agent', active: true, ...h, created_at: new Date().toISOString() };
       await mutate(d => { d.staff.push(u); }, 'افزودن مشاور ' + p.full_name); return u.id;
     },
     async listings() {
@@ -325,10 +334,15 @@ function GitHubDB() {
     async incViews() { },
     async agents() { return P && dev?.uid ? clone(publicView(P).agents) : clone((await loadPublic()).agents); },
     // مدیر اصلی از دید بقیه ادمین‌ها پنهان است
-    async profiles() { if (!admin()) return [clone(pubMe(me()))]; const o = ownerId(); return P.staff.filter(s => s.id === dev.uid || s.id !== o || dev.uid === o).map(s => clone(pubMe(s))); },
+    async profiles() { if (!admin()) return [clone(pubMe(me()))]; const o = ownerId(); return P.staff.filter(s => dev.uid === o || s.id === dev.uid || s.role !== 'admin').map(s => clone(pubMe(s))); },
     async updateProfile(id, patch) {
       if (id !== dev.uid && !admin()) deny();
       if (id === ownerId() && dev.uid !== id) deny();
+      if (dev.uid !== ownerId()) {   // فقط مدیر اصلی روی ادمین‌ها و نقش ادمین اختیار دارد
+        const t = P.staff.find(s => s.id === id);
+        if (id !== dev.uid && t?.role === 'admin') deny();
+        if (patch.role === 'admin') deny();
+      }
       if (patch.full_name && P.staff.some(s => s.id !== id && normName(s.full_name) === normName(patch.full_name))) throw new Error('این نام قبلا برای کس دیگری ثبت شده است');
       if (!admin()) { delete patch.role; delete patch.active; }
       if (id === dev.uid) { delete patch.role; delete patch.active; }
@@ -915,9 +929,11 @@ async function viewPanel(tab, reuse) {
   const [all, agents, leads] = S.panel;
   const admin = isAdmin();
   const mine = admin ? all : all.filter(l => l.agent_id === S.me.id);
+  // فقط مشاوران قابل‌دیدن شمرده می‌شوند (مدیرهای پنهان در شمارش لو نروند)
+  const nAgents = admin ? (await DB.profiles()).filter(p => p.active && p.role === 'agent').length : 0;
   const newLeads = leads.filter(x => x.status === 'new').length;
   const tabs = [['listings', admin ? 'همه آگهی‌ها' : 'آگهی‌های من'], ...(DB.caps.leads ? [['leads', `درخواست‌ها${newLeads ? ` (${fa(newLeads)})` : ''}`]] : []),
-    ...(admin ? [['agents', 'مشاوران'], ['designs', 'طراحی‌ها']] : []), ['me', 'حساب من']];
+    ...(admin ? [['agents', 'مشاوران'], ['designs', 'طراحی‌ها']] : []), ...(DB.isOwner?.() ? [['admins', 'مدیران']] : []), ['me', 'حساب من']];
   view().innerHTML = `
     <div class="row" style="margin-bottom:12px"><h2 style="flex:1">${admin ? 'پنل مدیریت' : 'پنل مشاور'}</h2>
       <a class="btn primary" href="#edit/new">${I.plus} ثبت آگهی</a></div>
@@ -929,7 +945,7 @@ async function viewPanel(tab, reuse) {
       <div class="stat"><small>معامله شده</small><b>${fa(mine.filter(l => ['sold', 'rented'].includes(l.status)).length)}</b></div>
       ${DB.caps.views ? `<div class="stat"><small>کل بازدید</small><b>${fa(mine.reduce((s, l) => s + (l.views || 0), 0))}</b></div>` : ''}
       ${DB.caps.leads ? `<div class="stat"><small>درخواست جدید</small><b style="color:${newLeads ? 'var(--warn)' : ''}">${fa(newLeads)}</b></div>` : `<div class="stat"><small>مخفی</small><b>${fa(mine.filter(l => l.status === 'hidden').length)}</b></div>`}
-      ${admin ? `<div class="stat"><small>مشاور فعال</small><b>${fa(agents.length)}</b></div>` : ''}
+      ${admin ? `<div class="stat"><small>مشاور فعال</small><b>${fa(nAgents)}</b></div>` : ''}
     </div>
     <div class="seg" style="margin-bottom:12px">${tabs.map(([k, t]) => `<button data-t="${k}" class="${k === tab ? 'on' : ''}">${t}</button>`).join('')}</div>
     <div id="pt"></div>`;
@@ -940,6 +956,7 @@ async function viewPanel(tab, reuse) {
   if (tab === 'listings') panelListings(pt, mine, agents);
   else if (tab === 'leads' && DB.caps.leads) panelLeads(pt, leads, all);
   else if (tab === 'agents' && admin) await panelAgents(pt, all, leads);
+  else if (tab === 'admins' && DB.isOwner?.()) await panelAdmins(pt, all);
   else if (tab === 'designs' && admin) await panelDesigns(pt);
   else panelMe(pt);
 }
@@ -1035,7 +1052,7 @@ async function panelAgents(pt, all, leads) {
       <div class="small muted">${esc([p.email, faStr(p.phone)].filter(Boolean).join(' · '))}</div>
       <div class="small muted">${fa(n.length)} آگهی · ${fa(n.filter(l => l.status === 'active').length)} فعال${DB.caps.views ? ` · ${fa(n.reduce((s, l) => s + (l.views || 0), 0))} بازدید` : ''}${DB.caps.leads ? ` · ${fa(lc)} درخواست` : ''}</div>
       ${self ? '<div class="small">(شما)</div>' : `<div class="row" style="margin-top:4px">
-        <select data-role="${p.id}" ${sel}>${opts(Object.entries(ROLES).filter(([k]) => !gh || k !== 'pending'), p.role)}</select>
+        ${!gh || DB.isOwner() ? `<select data-role="${p.id}" ${sel}>${opts(Object.entries(ROLES).filter(([k]) => !gh || k !== 'pending'), p.role)}</select>` : ''}
         <label class="check small"><input type="checkbox" data-act="${p.id}"${p.active ? ' checked' : ''}> فعال</label>
         ${p.role === 'pending' ? `<button class="btn sm primary" data-ok="${p.id}">تأیید به‌عنوان مشاور</button>` : ''}
         ${gh && p.active ? `<button class="btn sm" data-inv="${p.id}">رمز جدید و لینک دعوت</button>` : ''}</div>`}</div></div>`;
@@ -1073,6 +1090,28 @@ async function panelAgents(pt, all, leads) {
     if (pw == null) return; if (pw.length < 6) return toast('رمز باید حداقل ۶ حرف باشد');
     b.disabled = true;
     try { await DB.setPassword(pw, b.dataset.inv); await showInvite(b.dataset.inv, pw); } catch (err) { toast(err.message); } finally { b.disabled = false; }
+  }));
+}
+
+async function panelAdmins(pt, all) {
+  const { staff, log } = await DB.activity();
+  const by = Object.fromEntries(staff.map(s => [s.id, s]));
+  const admins = staff.filter(s => s.role === 'admin' && s.id !== S.me.id);
+  const ACT = { login: 'ورود', created: 'ساخت حساب مدیر', join: 'عضویت با لینک دعوت' };
+  pt.innerHTML = `<p class="muted small" style="margin-top:0">این بخش فقط برای شما (مدیر اصلی) نمایش داده می‌شود. بقیه مدیرها نه این صفحه را می‌بینند و نه بقیه مدیرها را.</p>
+    <h3 style="margin-bottom:8px">مدیرها (${fa(admins.length)})</h3>
+    <div class="tbl">${admins.map(a => `<div class="tr"><div class="avatar" style="width:44px;height:44px;font-size:17px">${esc(a.full_name[0])}</div>
+      <div class="mid"><b>${esc(a.full_name)} ${a.active ? '' : '<span class="tag bad">غیرفعال</span>'}</b>
+      <div class="small muted">عضو از ${new Date(a.created_at).toLocaleDateString('fa-IR')} · ${fa(a.logins || 0)} بار ورود</div>
+      <div class="small muted">آخرین ورود: ${a.last_login ? ago(a.last_login) : '—'} · ${fa(all.filter(l => l.agent_id === a.id).length)} آگهی</div>
+      <label class="check small" style="margin-top:4px"><input type="checkbox" data-adm="${a.id}"${a.active ? ' checked' : ''}> دسترسی فعال</label></div></div>`).join('') || '<div class="empty">هنوز مدیر دیگری عضو نشده است.</div>'}</div>
+    <h3 style="margin:16px 0 8px">آخرین ورودها</h3>
+    <div class="tbl">${log.slice(0, 40).map(e => { const u = by[e.uid]; return `<div class="tr" style="padding:8px 10px"><div class="mid">
+      <b style="font-weight:500">${esc(u?.full_name || 'حذف‌شده')} <span class="tag${u?.role === 'admin' ? ' sale' : ''}">${u?.role === 'admin' ? 'مدیر' : 'مشاور'}</span></b>
+      <div class="small muted">${ACT[e.action] || e.action} · ${ago(e.at)} · ${new Date(e.at).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' })} · ${esc(e.device || '')}</div></div></div>`; }).join('') || '<div class="empty">هنوز ورودی ثبت نشده است.</div>'}</div>`;
+  $$('[data-adm]').forEach(c => c.addEventListener('change', async () => {
+    if (!c.checked && !confirm('دسترسی این مدیر قطع شود؟')) { c.checked = true; return; }
+    try { await DB.updateProfile(c.dataset.adm, { active: c.checked }); S.agents = null; S.panel = null; toast('ذخیره شد', 1200); viewPanel('admins'); } catch (e) { toast(e.message); }
   }));
 }
 
