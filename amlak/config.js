@@ -4,6 +4,8 @@ window.AMLAK_CONFIG = {
   name: 'املاک نمونه',                 // نام بنگاه
   tagline: 'خرید، فروش و اجاره',       // زیرعنوان
   phone: '',                            // تلفن دفتر (اختیاری)، مثلا 02144556677
-  publicRepo: 'MASOUD123600/MASOOD',    // مخزن همین سایت (آگهی‌های عمومی در شاخه amlak-data آن ذخیره می‌شود)
-  publicBranch: 'amlak-data'
+  publicRepo: 'MASOUD123600/amlak-data', // مخزن عمومی آگهی‌ها و عکس‌ها (جدا از سایت)
+  publicBranch: 'main',
+  // محل قبلی داده‌ها؛ اپ آن را خودکار به مخزن بالا منتقل می‌کند
+  oldPublic: { repo: 'MASOUD123600/MASOOD', branch: 'amlak-data' }
 };

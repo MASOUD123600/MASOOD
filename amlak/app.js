@@ -99,7 +99,8 @@ async function compress(file, max, q) {
    - اطلاعات کامل و محرمانه (مالک، آدرس دقیق، آگهی‌های مخفی، رمز کارمندان) در private.json یک مخزن خصوصی.
    - توکن فقط روی دستگاه کارمندان است؛ مشاوران آن را داخل «لینک دعوت» رمزگذاری‌شده با رمز خودشان می‌گیرند.
    ===================================================================== */
-const PUB_REPO = CFG.publicRepo, PUB_BRANCH = CFG.publicBranch || 'amlak-data';
+const NEW_PUB = { repo: CFG.publicRepo, branch: CFG.publicBranch || 'main' };
+const OLD_PUB = CFG.oldPublic || null;   // محل قبلی داده‌های عمومی (برای انتقال خودکار)
 const te = new TextEncoder(), td = new TextDecoder();
 const b64u = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode(...u8.subarray(i, i + 0x8000)); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
 const ub64u = s => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
@@ -127,7 +128,10 @@ const uid8 = () => b64u(crypto.getRandomValues(new Uint8Array(9)));
 function GitHubDB() {
   let dev = store.get('amlak-device', null);        // {repo, token, uid}
   let P = null, PSHA = null, pubSha = null;          // private.json و sha آن
-  const rawUrl = path => `https://raw.githubusercontent.com/${PUB_REPO}/${PUB_BRANCH}/${path}`;
+  const rawBase = t => `https://raw.githubusercontent.com/${t.repo}/${t.branch}/`;
+  // محل نوشتن: اگر داده‌ها هنوز به مخزن جدید منتقل نشده‌اند، همان محل قبلی
+  const tgt = () => P?.pub || (P && OLD_PUB ? OLD_PUB : NEW_PUB);
+  const rawUrl = (path, t = tgt()) => rawBase(t) + path;
   async function gh(path, opt = {}, tok = dev?.token) {
     const r = await fetch('https://api.github.com' + path, { ...opt, cache: 'no-store', headers: {
       Authorization: 'Bearer ' + tok, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', ...(opt.headers || {}) } })
@@ -168,8 +172,9 @@ function GitHubDB() {
     const body = toB64(JSON.stringify(publicView(P)));
     for (let i = 0; i < 4; i++) {
       try {
-        if (pubSha == null) pubSha = (await gh(`/repos/${PUB_REPO}/contents/public.json?ref=${PUB_BRANCH}`).catch(e => { if (e.status === 404) return { sha: '' }; throw e; })).sha;
-        pubSha = (await putFile(PUB_REPO, 'public.json', body, pubSha || null, 'به‌روزرسانی آگهی‌ها', PUB_BRANCH)).content.sha; return;
+        const t = tgt();
+        if (pubSha == null) pubSha = (await gh(`/repos/${t.repo}/contents/public.json?ref=${t.branch}`).catch(e => { if (e.status === 404) return { sha: '' }; throw e; })).sha;
+        pubSha = (await putFile(t.repo, 'public.json', body, pubSha || null, 'به‌روزرسانی آگهی‌ها', t.branch)).content.sha; return;
       } catch (e) { if (![409, 422].includes(e.status)) throw e; pubSha = null; }
     }
   }
@@ -185,17 +190,29 @@ function GitHubDB() {
     if (pub) await publish();
     return res;
   }
-  async function ensureBranch() {
-    try { await gh(`/repos/${PUB_REPO}/git/ref/heads/${PUB_BRANCH}`); return; } catch (e) { if (e.status !== 404) throw e; }
-    // شاخه جدا و خالی (فقط داده، بدون کد سایت)
-    const tree = await gh(`/repos/${PUB_REPO}/git/trees`, { method: 'POST', body: JSON.stringify({ tree: [{ path: 'README.md', mode: '100644', type: 'blob', content: 'داده‌های عمومی اپ املاک. این شاخه را دستی ویرایش نکنید.\n' }] }) });
-    const commit = await gh(`/repos/${PUB_REPO}/git/commits`, { method: 'POST', body: JSON.stringify({ message: 'شروع داده‌های املاک', tree: tree.sha, parents: [] }) });
-    await gh(`/repos/${PUB_REPO}/git/refs`, { method: 'POST', body: JSON.stringify({ ref: 'refs/heads/' + PUB_BRANCH, sha: commit.sha }) });
+  async function ensureBranch(t) {
+    try { await gh(`/repos/${t.repo}/git/ref/heads/${t.branch}`); return; } catch (e) { if (![404, 409].includes(e.status)) throw e; }
+    const info = await gh(`/repos/${t.repo}`);
+    if (info.default_branch === t.branch) {   // مخزن تازه و خالی: اولین فایل، شاخه اصلی را می‌سازد
+      await putFile(t.repo, 'README.md', toB64('داده‌های عمومی اپ املاک. دستی ویرایش نکنید.\n'), null, 'شروع داده‌های املاک');
+      return;
+    }
+    // شاخه جدا و خالی در مخزنی که از قبل فایل دارد
+    const tree = await gh(`/repos/${t.repo}/git/trees`, { method: 'POST', body: JSON.stringify({ tree: [{ path: 'README.md', mode: '100644', type: 'blob', content: 'داده‌های عمومی اپ املاک.\n' }] }) });
+    const commit = await gh(`/repos/${t.repo}/git/commits`, { method: 'POST', body: JSON.stringify({ message: 'شروع داده‌های املاک', tree: tree.sha, parents: [] }) });
+    await gh(`/repos/${t.repo}/git/refs`, { method: 'POST', body: JSON.stringify({ ref: 'refs/heads/' + t.branch, sha: commit.sha }) });
+  }
+  async function checkPubAccess(t, tok) {
+    const pu = await gh(`/repos/${t.repo}`, {}, tok).catch(e => { const x = new Error('توکن به مخزن ' + t.repo.split('/')[1] + ' دسترسی ندارد'); x.status = e.status; throw x; });
+    if (pu.private) throw new Error('مخزن ' + t.repo.split('/')[1] + ' باید Public باشد تا مشتری‌ها آگهی‌ها را ببینند');
+    if (!pu.permissions?.push) throw new Error('توکن روی مخزن ' + t.repo.split('/')[1] + ' اجازه Contents: Read and write ندارد');
   }
   let PUB = null;
   async function loadPublic() {
     if (PUB) return PUB;
-    const r = await fetch(rawUrl('public.json') + '?t=' + Math.floor(Date.now() / 60000), { cache: 'no-store' }).catch(() => null);
+    const get = t => fetch(rawUrl('public.json', t) + '?t=' + Math.floor(Date.now() / 60000), { cache: 'no-store' }).catch(() => null);
+    let r = await get(NEW_PUB);
+    if (r && !r.ok && OLD_PUB) r = await get(OLD_PUB);   // هنوز منتقل نشده
     if (!r) throw new Error('اتصال به اینترنت برقرار نیست');
     PUB = r.ok ? await r.json() : { listings: [], agents: [], designs: [] };
     return PUB;
@@ -220,17 +237,18 @@ function GitHubDB() {
       repo = repo.trim().replace(/^https?:\/\/github\.com\//, '').replace(/\/+$/, ''); token = token.trim();
       if (repo && !repo.includes('/')) repo += '/amlak-private';
       if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error('نام مخزن را به شکل نام‌کاربری/نام‌مخزن بنویسید');
-      const [pr, pu] = await Promise.all([gh(`/repos/${repo}`, {}, token), gh(`/repos/${PUB_REPO}`, {}, token).catch(e => { e.message = 'توکن به مخزن سایت (' + PUB_REPO + ') دسترسی ندارد'; throw e; })]);
+      const pr = await gh(`/repos/${repo}`, {}, token);
       if (!pr.private) throw new Error('مخزن اطلاعات باید Private (خصوصی) باشد');
-      if (!pr.permissions?.push || !pu.permissions?.push) throw new Error('توکن باید روی هر دو مخزن اجازه Contents: Read and write داشته باشد');
+      if (!pr.permissions?.push) throw new Error('توکن روی مخزن خصوصی اجازه Contents: Read and write ندارد');
       dev = { repo, token, uid: null };
       const f = await getJSON(repo, 'private.json');
       if (f) { P = f.data; PSHA = f.sha; store.set('amlak-device', dev); return 'exists'; }
+      await checkPubAccess(NEW_PUB, token);
       if (!admin) return 'new';
       const h = await hashPw(admin.pw);
       const u = { id: uid8(), full_name: admin.full_name, phone: admin.phone, bio: 'مدیر بنگاه', role: 'admin', active: true, ...h, created_at: new Date().toISOString() };
-      P = { v: 1, seq: 100, staff: [u], listings: [], priv: {}, designs: [] };
-      await ensureBranch();
+      P = { v: 1, seq: 100, staff: [u], listings: [], priv: {}, designs: [], pub: NEW_PUB };
+      await ensureBranch(NEW_PUB);
       PSHA = (await putFile(repo, 'private.json', toB64(JSON.stringify(P)), null, 'راه‌اندازی سامانه املاک')).content.sha;
       await publish();
       dev.uid = u.id; store.set('amlak-device', dev); return 'created';
@@ -299,13 +317,48 @@ function GitHubDB() {
     },
     async deleteDesign(id) { if (!admin()) deny(); await mutate(d => { d.designs = d.designs.filter(y => y.id !== id); }, 'حذف نمونه‌کار'); },
     async addLead() { }, async leads() { return []; }, async updateLead() { },
+    needsMigration: () => !!(P && dev?.uid && admin() && !P.pub && OLD_PUB),
+    // انتقال یک‌باره عکس‌ها و آگهی‌های عمومی از مخزن سایت به مخزن جدا
+    async migrate(progress = () => { }) {
+      if (!admin()) deny();
+      const t = NEW_PUB, oldBase = rawBase(OLD_PUB), newBase = rawBase(t);
+      await checkPubAccess(t);
+      await ensureBranch(t);
+      await loadPriv();
+      const urls = new Set();
+      const add = u => { if (typeof u === 'string' && u.startsWith(oldBase)) urls.add(u); };
+      P.listings.forEach(l => (l.images || []).forEach(add));
+      P.designs.forEach(d => { (d.images || []).forEach(add); add(d.before_image); });
+      let i = 0;
+      for (const u of urls) {
+        progress(++i, urls.size);
+        const path = u.slice(oldBase.length);
+        const there = await gh(`/repos/${t.repo}/contents/${path}?ref=${t.branch}`).then(() => true, e => { if (e.status === 404) return false; throw e; });
+        if (there) continue;
+        const f = await gh(`/repos/${OLD_PUB.repo}/contents/${path}?ref=${OLD_PUB.branch}`).catch(e => { if (e.status === 404) return null; throw e; });
+        if (!f) continue;
+        const content = (f.content || (await gh(`/repos/${OLD_PUB.repo}/git/blobs/${f.sha}`)).content).replace(/\s/g, '');
+        await putFile(t.repo, path, content, null, 'انتقال عکس', t.branch);
+      }
+      const fix = u => typeof u === 'string' && u.startsWith(oldBase) ? newBase + u.slice(oldBase.length) : u;
+      pubSha = null;
+      await mutate(d => {
+        d.listings.forEach(l => { l.images = (l.images || []).map(fix); });
+        d.designs.forEach(x => { x.images = (x.images || []).map(fix); x.before_image = fix(x.before_image); });
+        d.pub = t;
+      }, 'انتقال عکس‌ها به مخزن جدا');
+      // پاک کردن شاخه قدیمی از مخزن سایت
+      await gh(`/repos/${OLD_PUB.repo}/git/refs/heads/${OLD_PUB.branch}`, { method: 'DELETE' }).catch(() => { });
+      return urls.size;
+    },
     async upload(file) {
       if (!staff()) deny();
       const blob = await compress(file, 1600, .8);
       const data = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(String(fr.result).split(',')[1]); fr.readAsDataURL(blob); });
       const path = `img/${new Date().toISOString().slice(0, 7)}/${uid8()}.jpg`;
-      await putFile(PUB_REPO, path, data, null, 'عکس', PUB_BRANCH);
-      return rawUrl(path);
+      const t = tgt();
+      await putFile(t.repo, path, data, null, 'عکس', t.branch);
+      return rawUrl(path, t);
     }
   };
 }
@@ -825,6 +878,7 @@ async function viewPanel(tab, reuse) {
   view().innerHTML = `
     <div class="row" style="margin-bottom:12px"><h2 style="flex:1">${admin ? 'پنل مدیریت' : 'پنل مشاور'}</h2>
       <a class="btn primary" href="#edit/new">${I.plus} ثبت آگهی</a></div>
+    <div id="mig"></div>
     <div class="stats" style="margin-bottom:14px">
       <div class="stat"><small>آگهی فعال</small><b>${fa(mine.filter(l => l.status === 'active').length)}</b></div>
       <div class="stat"><small>فروش / اجاره</small><b>${fa(mine.filter(l => l.deal === 'sale').length)} / ${fa(mine.filter(l => l.deal === 'rent').length)}</b></div>
@@ -837,11 +891,28 @@ async function viewPanel(tab, reuse) {
     <div id="pt"></div>`;
   $$('.seg [data-t]').forEach(b => b.addEventListener('click', () => history.replaceState(null, '', '#panel/' + b.dataset.t) || viewPanel(b.dataset.t, true)));
   const pt = $('#pt');
+  if (DB.needsMigration?.()) runMigration();
   if (tab === 'listings') panelListings(pt, mine, agents);
   else if (tab === 'leads' && DB.caps.leads) panelLeads(pt, leads, all);
   else if (tab === 'agents' && admin) await panelAgents(pt, all, leads);
   else if (tab === 'designs' && admin) await panelDesigns(pt);
   else panelMe(pt);
+}
+
+let migrating = false;
+async function runMigration() {
+  const box = $('#mig'); if (!box || migrating) return;
+  migrating = true;
+  const show = (html, warn) => { const b = $('#mig'); if (b) b.innerHTML = `<div class="card" style="margin-bottom:12px;border-color:var(--${warn ? 'warn' : 'accent'})">${html}</div>`; };
+  show('<b>در حال انتقال عکس‌ها به مخزن جدا…</b><div class="small muted" id="migp">لطفا صفحه را نبندید.</div>');
+  try {
+    const n = await DB.migrate((i, t) => { const e = $('#migp'); if (e) e.textContent = `عکس ${fa(i)} از ${fa(t)} — لطفا صفحه را نبندید.`; });
+    show(`<b>✓ انتقال انجام شد</b><div class="small muted">${fa(n)} عکس به مخزن جدا منتقل شد.</div>`);
+    invalidate(); S.panel = null;
+  } catch (e) {
+    show(`<b>انتقال عکس‌ها به مخزن جدا هنوز انجام نشده</b><div class="small">${esc(e.message)}</div>
+      <div class="small muted">مخزن عمومی <b dir="ltr">amlak-data</b> را بسازید و به توکن فعلی اضافه کنید، بعد این صفحه را دوباره باز کنید. تا آن موقع همه‌چیز مثل قبل کار می‌کند.</div>`, true);
+  } finally { migrating = false; }
 }
 
 function panelListings(pt, rows, agents) {
