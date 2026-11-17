@@ -123,6 +123,7 @@ async function openInvite(pw, code) {
   try { return JSON.parse(td.decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, await aesKey(pw, s), c))); }
   catch { throw new Error('رمز اشتباه است یا لینک ناقص کپی شده'); }
 }
+const normName = s => String(s || '').replace(/ي/g, 'ی').replace(/ك/g, 'ک').replace(/[\u200c\s]+/g, ' ').trim();
 const uid8 = () => b64u(crypto.getRandomValues(new Uint8Array(9)));
 
 function GitHubDB() {
@@ -161,6 +162,7 @@ function GitHubDB() {
   const admin = () => me()?.active && me()?.role === 'admin';
   const staff = () => me()?.active && ['admin', 'agent'].includes(me()?.role);
   const owns = l => l && (admin() || (staff() && l.agent_id === dev.uid));
+  const ownerId = () => (P?.staff.find(s => s.owner) || P?.staff.filter(s => s.role === 'admin').sort((a, b) => a.created_at.localeCompare(b.created_at))[0])?.id;
   const deny = () => { throw new Error('شما اجازه این کار را ندارید'); };
   function publicView(d) {
     return { updated: new Date().toISOString(),
@@ -223,7 +225,28 @@ function GitHubDB() {
     deviceLinked: () => !!dev?.token,
     async init() { if (dev?.token) { try { await loadPriv(); } catch (e) { if (e.status === 401) { dev = null; store.set('amlak-device', null); } else throw e; } } },
     async me() { const m = me(); return dev?.uid && m ? clone(pubMe(m)) : null; },
-    staffList() { return (P?.staff || []).filter(s => s.active).map(s => ({ id: s.id, full_name: s.full_name, role: s.role })); },
+    // دستگاهی که با «رمز مخزن» وصل شده (مدیر) می‌تواند حساب مدیر تازه بسازد؛ دستگاهی که با لینک دعوت وصل شده نه
+    deviceKind: () => dev?.kind || (P?.staff.find(s => s.id === dev?.uid)?.role === 'admin' ? 'admin' : 'agent'),
+    // ورود با نوشتن نام (بدون نمایش فهرست کارمندان)
+    async loginByName(name, pw, allowCreate) {
+      await loadPriv();
+      const u = P.staff.find(s => normName(s.full_name) === normName(name));
+      if (u) {
+        if (!await checkPw(u, pw)) throw new Error('نام یا رمز اشتباه است');
+        if (!u.active) throw new Error('حساب شما غیرفعال شده است');
+        if (!dev.kind) dev.kind = u.role === 'admin' ? 'admin' : 'agent';
+        dev.uid = u.id; store.set('amlak-device', dev); return 'in';
+      }
+      if (!allowCreate || this.deviceKind() !== 'admin') throw new Error('نام یا رمز اشتباه است');
+      if (pw.length < 6) throw new Error('رمز باید حداقل ۶ حرف باشد');
+      const h = await hashPw(pw), id = uid8();
+      await mutate(d => {
+        if (d.staff.some(s => normName(s.full_name) === normName(name))) throw new Error('این نام همین الان ثبت شد؛ دوباره وارد شوید');
+        d.staff.push({ id, full_name: name.trim(), phone: '', bio: '', role: 'admin', active: true, ...h, created_at: new Date().toISOString() });
+      }, 'مدیر جدید');
+      dev.uid = id; store.set('amlak-device', dev); return 'created';
+    },
+    nameExists: name => !!P?.staff.some(s => normName(s.full_name) === normName(name)),
     async signIn(id, pw) {
       await loadPriv(); const u = P.staff.find(s => s.id === id);
       if (!u || !await checkPw(u, pw)) throw new Error('رمز عبور اشتباه است');
@@ -240,13 +263,13 @@ function GitHubDB() {
       const pr = await gh(`/repos/${repo}`, {}, token);
       if (!pr.private) throw new Error('مخزن اطلاعات باید Private (خصوصی) باشد');
       if (!pr.permissions?.push) throw new Error('توکن روی مخزن خصوصی اجازه Contents: Read and write ندارد');
-      dev = { repo, token, uid: null };
+      dev = { repo, token, uid: null, kind: 'admin' };
       const f = await getJSON(repo, 'private.json');
       if (f) { P = f.data; PSHA = f.sha; store.set('amlak-device', dev); return 'exists'; }
       await checkPubAccess(NEW_PUB, token);
       if (!admin) return 'new';
       const h = await hashPw(admin.pw);
-      const u = { id: uid8(), full_name: admin.full_name, phone: admin.phone, bio: 'مدیر بنگاه', role: 'admin', active: true, ...h, created_at: new Date().toISOString() };
+      const u = { id: uid8(), full_name: admin.full_name, phone: admin.phone, bio: 'مدیر بنگاه', role: 'admin', owner: true, active: true, ...h, created_at: new Date().toISOString() };
       P = { v: 1, seq: 100, staff: [u], listings: [], priv: {}, designs: [], pub: NEW_PUB };
       await ensureBranch(NEW_PUB);
       PSHA = (await putFile(repo, 'private.json', toB64(JSON.stringify(P)), null, 'راه‌اندازی سامانه املاک')).content.sha;
@@ -255,7 +278,7 @@ function GitHubDB() {
     },
     async joinWithInvite(code, pw) {
       const inv = await openInvite(pw, code);
-      dev = { repo: inv.repo, token: inv.token, uid: null };
+      dev = { repo: inv.repo, token: inv.token, uid: null, kind: 'agent' };
       try { await loadPriv(); } catch (e) { dev = null; throw e.status === 401 ? new Error('این لینک دعوت باطل شده است؛ از مدیر لینک تازه بگیرید') : e; }
       store.set('amlak-device', dev);
       await this.signIn(inv.uid, pw);
@@ -268,6 +291,7 @@ function GitHubDB() {
     },
     async addStaff(p) {
       if (!admin()) deny();
+      if (P.staff.some(s => normName(s.full_name) === normName(p.full_name))) throw new Error('این نام قبلا ثبت شده است؛ نام را کمی متفاوت بنویسید (مثلا با نام خانوادگی)');
       const h = await hashPw(p.pw), u = { id: uid8(), full_name: p.full_name, phone: p.phone, bio: '', role: p.role || 'agent', active: true, ...h, created_at: new Date().toISOString() };
       await mutate(d => { d.staff.push(u); }, 'افزودن مشاور ' + p.full_name); return u.id;
     },
@@ -300,9 +324,12 @@ function GitHubDB() {
     },
     async incViews() { },
     async agents() { return P && dev?.uid ? clone(publicView(P).agents) : clone((await loadPublic()).agents); },
-    async profiles() { if (!admin()) return [clone(pubMe(me()))]; return P.staff.map(s => clone(pubMe(s))); },
+    // مدیر اصلی از دید بقیه ادمین‌ها پنهان است
+    async profiles() { if (!admin()) return [clone(pubMe(me()))]; const o = ownerId(); return P.staff.filter(s => s.id === dev.uid || s.id !== o || dev.uid === o).map(s => clone(pubMe(s))); },
     async updateProfile(id, patch) {
       if (id !== dev.uid && !admin()) deny();
+      if (id === ownerId() && dev.uid !== id) deny();
+      if (patch.full_name && P.staff.some(s => s.id !== id && normName(s.full_name) === normName(patch.full_name))) throw new Error('این نام قبلا برای کس دیگری ثبت شده است');
       if (!admin()) { delete patch.role; delete patch.active; }
       if (id === dev.uid) { delete patch.role; delete patch.active; }
       await mutate(d => Object.assign(d.staff.find(s => s.id === id), patch), 'ویرایش پروفایل');
@@ -799,22 +826,30 @@ const afterLogin = async () => { S.me = await DB.me(); invalidate(); S.panel = n
 function viewLogin() {
   if (DEMO) return viewDemoLogin();
   if (!DB.deviceLinked()) return viewSetup();
-  const list = DB.staffList();
+  const adminDev = DB.deviceKind() === 'admin';
   view().innerHTML = `<div style="max-width:420px;margin:0 auto" class="stack">
-    <h2>ورود مشاوران و مدیر</h2>
-    <p class="muted small" style="margin:0">مشتریان برای دیدن آگهی‌ها نیازی به ورود ندارند.</p>
+    <h2>${adminDev ? 'ورود مدیر' : 'ورود مشاور'}</h2>
     <form class="card stack" id="f">
-      <label class="f"><span>نام شما</span><select name="id">${opts(list.map(s => [s.id, s.full_name + (s.role === 'admin' ? ' (مدیر)' : '')]), store.get('amlak-last-uid', ''))}</select></label>
-      <input name="pw" type="password" required placeholder="رمز عبور" dir="ltr" autocomplete="current-password">
+      <label class="f"><span>نام شما</span><input name="name" required autocomplete="username" value="${esc(store.get('amlak-last-name', ''))}"></label>
+      <label class="f"><span>رمز عبور</span><input name="pw" type="password" required dir="ltr" autocomplete="current-password"></label>
       <button class="btn primary" id="sb">ورود</button>
     </form>
     <button class="btn ghost" id="forget">جدا کردن این گوشی از سامانه</button></div>`;
   $('#f').addEventListener('submit', async e => {
-    e.preventDefault(); const b = $('#sb'); b.disabled = true;
-    try { await DB.signIn(e.target.id.value, e.target.pw.value); store.set('amlak-last-uid', e.target.id.value); await afterLogin(); }
-    catch (err) { toast(err.message); b.disabled = false; }
+    e.preventDefault(); const b = $('#sb'), name = e.target.name.value.trim(), pw = e.target.pw.value;
+    let create = false;
+    if (adminDev && !DB.nameExists(name)) {
+      if (pw.length < 6) return toast('رمز باید حداقل ۶ حرف باشد');
+      if (!confirm(`حساب مدیر جدید با نام «${name}» ساخته شود؟\n(اگر قبلا حساب دارید، «لغو» را بزنید و نامتان را دقیقا مثل قبل بنویسید)`)) return;
+      create = true;
+    }
+    b.disabled = true;
+    try {
+      const r = await DB.loginByName(name, pw, create); store.set('amlak-last-name', name);
+      if (r === 'created') toast('حساب مدیر شما ساخته شد'); await afterLogin();
+    } catch (err) { toast(err.message); b.disabled = false; }
   });
-  $('#forget').addEventListener('click', () => { if (confirm('اتصال این گوشی به سامانه قطع شود؟ برای اتصال دوباره لینک دعوت لازم است.')) { DB.forgetDevice(); viewLogin(); } });
+  $('#forget').addEventListener('click', () => { if (confirm('اتصال این گوشی به سامانه قطع شود؟')) { DB.forgetDevice(); viewLogin(); } });
 }
 
 function viewSetup() {
@@ -838,7 +873,7 @@ function viewSetup() {
       const r = await DB.setup(f.repo.value, f.token.value, creating ? { full_name: f.full_name.value.trim(), phone: f.phone.value.trim(), pw: f.pw.value } : null);
       if (r === 'new') { $('#newAdm').hidden = false; b.textContent = 'ساخت سامانه'; b.disabled = false; return; }
       if (r === 'created') { toast('سامانه راه‌اندازی شد'); return afterLogin(); }
-      toast('این گوشی به سامانه وصل شد؛ وارد شوید'); viewLogin();
+      viewLogin();
     } catch (err) { toast(err.message, 5000); b.disabled = false; b.textContent = creating ? 'ساخت سامانه' : 'اتصال'; }
   });
 }
