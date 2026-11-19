@@ -28,6 +28,49 @@
     ['پکیج', /پکیج/], ['شوفاژ', /شوفاژ/], ['کولر گازی', /کولر ?گازی|اسپلیت/], ['مبله', /مبله|مبلمان/], ['قابل معاوضه', /معاوضه/], ['وام دار', /وام/], ['دسترسی به مترو', /مترو/]];
   const negated = (s, i, len) => /ندارد|نداره|ندارند/.test(s.slice(i + len, i + len + 10)) || /بدون\s*$/.test(s.slice(Math.max(0, i - 6), i));
 
+  // توضیحات تمیز: بدون «انتشار آگهی / آخرین نردبان / زنگ خطرها»، بدون متن مخصوص گوگل، بدون پاراگراف تکراری
+  W.cleanDesc = function (t) {
+    const lines = String(t || '').replace(/\*\*/g, '').split('\n').filter(x => !/^\s*(?:انتشار آگهی|آخرین نردبان|زنگ خطرهای|آگهی\s.{2,90}\sدر دیوار)/.test(x));
+    const paras = lines.join('\n').split(/\n\s*\n/).map(p => p.trim()).filter(Boolean), keep = [], seen = [];
+    for (const p of paras) { const k = norm(p).replace(/\s+/g, ' '); if (seen.some(s => s.includes(k) || k.includes(s))) continue; seen.push(k); keep.push(p); }
+    return keep.join('\n\n').trim();
+  };
+  // هر عکس دیوار در چند اندازه می‌آید؛ از هر عکس فقط یکی با کیفیت اصلی، بدون پیش‌نمایش کوچک و مات
+  W.cleanImages = function (list) {
+    const pick = filter => {
+      const best = new Map();
+      for (const u of list) {
+        if (filter && /(logo|icon|avatar|placeholder|blur|thumbnail|thumb|small|_s\.|\/s\/)/i.test(u)) continue;
+        const stem = (u.split('?')[0].split('/').pop() || '').replace(/\.(jpe?g|webp|png)$/i, '');
+        const score = (/\.jpe?g/i.test(u) ? 2 : 0) + (/\/post\//.test(u) ? 1 : 0);
+        if (!best.has(stem) || best.get(stem).score < score) best.set(stem, { u, score });
+      }
+      return [...best.values()].map(x => x.u);
+    };
+    const r = pick(true); return (r.length ? r : pick(false)).slice(0, 20);
+  };
+  // عمر آگهی به روز: از «انتشار آگهی: ۶ مهر ۱۴۰۵» (تاریخ اصلی، نه نردبان)، وگرنه از زیرعنوان («دقایقی پیش»، «دیروز»، «۳ روز پیش»، «ماه پیش»)
+  const MONTHS = ['فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور', 'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند'];
+  function jalaliAge(y, m, d) {
+    try {
+      const f = new Intl.DateTimeFormat('en-US-u-ca-persian', { year: 'numeric', month: 'numeric', day: 'numeric' }), now = Date.now();
+      for (let i = 0; i < 800; i++) { const p = Object.fromEntries(f.formatToParts(new Date(now - i * 864e5)).map(x => [x.type, x.value])); if (parseInt(p.year) === y && +p.month === m && +p.day === d) return i; }
+    } catch { }
+    return null;
+  }
+  W.ageDays = function (subtitle, text) {
+    const t = norm(text || ''), pub = t.match(/انتشار(?:\s*آگهی)?\s*[:：]?\s*(\d{1,2})\s+([\u0600-\u06FF]+)\s+(\d{4})/);
+    if (pub) { const m = MONTHS.indexOf(pub[2]) + 1; if (m) { const a = jalaliAge(+pub[3], m, +pub[1]); if (a != null) return a; } }
+    const s = norm(subtitle || ''); let m;
+    if (/لحظاتی|دقایقی|دقیقه|ربع|نیم ساعت|ساعت/.test(s)) return 0;
+    if (/دیروز/.test(s)) return 1;
+    if ((m = s.match(/(\d+)\s*روز/))) return +m[1];
+    if ((m = s.match(/(\d+)?\s*هفته/))) return 7 * (+m[1] || 1);
+    if ((m = s.match(/(\d+)?\s*ماه/))) return 30 * (+m[1] || 1);
+    if (/سال/.test(s)) return 365;
+    return null;
+  };
+
   // متن آزاد آگهی (و جفت‌های «عنوان: مقدار» دیوار) را به فیلدهای فرم تبدیل می‌کند
   W.parseAdText = function (raw, pairs = []) {
     const s = norm(raw), out = { features: [] };
@@ -78,10 +121,10 @@
       if (ok && !(name === 'قابل معاوضه' && out.misc_kind === 'swap')) out.features.push(name);
     }
     // محله و شهر (زیرعنوان دیوار: «... در تهران، سعادت‌آباد»)
-    const loc = s.match(/در\s+([؀-ۿ ]{2,20})،\s*([؀-ۿ ]{2,30})/);
-    if (loc) { out.city = loc[1].trim(); out.district = loc[2].trim(); }
-    else { const d = s.match(/(?:محله|منطقه)\s*[:：]?\s*([؀-ۿ ]{2,25})/); if (d) out.district = d[1].trim(); }
-    out.description = String(raw || '').replace(/\*\*/g, '').trim().slice(0, 3800);
+    // محل فقط از زیرعنوان دیوار («... پیش در سهند، خ ابن سینا»)؛ نه از وسط توضیحات
+    const loc = s.match(/پیش\s+در\s+([^،\n]{2,25}?)(?:،\s*([^\n]{2,40}?))?\s*(?:\n|$)/);
+    if (loc) { out.city = loc[1].trim(); if (loc[2]) out.district = loc[2].trim(); }
+    out.description = W.cleanDesc(raw).slice(0, 3800);
     for (const k of Object.keys(out)) if (out[k] == null || Number.isNaN(out[k])) delete out[k];
     return out;
   };
@@ -116,16 +159,18 @@
       if (!o || typeof o !== 'object' || depth > 18) return;
       if (Array.isArray(o)) return o.forEach(x => walk(x, depth + 1));
       if (o.widget_type === 'LEGEND_TITLE_ROW' && o.data) { acc.title = acc.title || o.data.title || ''; acc.subtitle = acc.subtitle || o.data.subtitle || ''; }
+      if (o.widget_type === 'DESCRIPTION_ROW' && o.data && typeof o.data.text === 'string') acc.desc.push(o.data.text);
+      if (o.widget_type === 'IMAGE_CAROUSEL' && o.data) JSON.stringify(o.data).replace(/https:\/\/[a-z0-9.]*divarcdn\.com\/[^"\\]+?\.(?:jpe?g|webp|png)/gi, u => { acc.carousel.push(u); return u; });
       if (typeof o.title === 'string' && (typeof o.value === 'string' || typeof o.value === 'number')) acc.pairs.push([o.title, String(o.value)]);
       else if (typeof o.title === 'string' && o.title.length < 30) acc.labels.push(o.title + (o.available === false || o.disabled === true ? ' ندارد' : ''));
       if (typeof o.text === 'string' && o.text.length > 25) acc.texts.push(o.text);
       if (typeof o.description === 'string' && o.description.length > 25) acc.texts.push(o.description);
-      for (const k in o) { const v = o[k]; if (typeof v === 'string' && /divarcdn\.com\/.+\.(jpe?g|webp|png)/i.test(v)) acc.images.push(v); else walk(v, depth + 1); }
+      for (const k in o) { const v = o[k]; if (typeof v === 'string' && /business|user_?type|seller|poster_?type/i.test(k)) acc.biz.push(v); if (typeof v === 'string' && /divarcdn\.com\/.+\.(jpe?g|webp|png)/i.test(v)) acc.images.push(v); else walk(v, depth + 1); }
     })(j, 0);
     if (!acc.title && j && j.seo && j.seo.title) acc.title = j.seo.title;
     return acc;
   }
-  const newAcc = () => ({ title: '', subtitle: '', pairs: [], texts: [], images: [], labels: [] });
+  const newAcc = () => ({ title: '', subtitle: '', pairs: [], texts: [], images: [], labels: [], desc: [], carousel: [], biz: [] });
   const decodeHtml = t => t.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n));
   // پشتیبان: خواندن از خود صفحه آگهی در دیوار (JSON داخل صفحه، و اگر نبود متن قابل دیدن صفحه)
   function fromHtml(html, acc) {
@@ -155,12 +200,16 @@
     }
     if (gone) throw new Error('این آگهی در دیوار پیدا نشد (شاید حذف شده)');
     if (!got) { const x = new Error(W.bridgeOn() ? 'دیوار جواب نداد (اگر VPN روشن است خاموشش کنید)' : 'دیوار اجازه خواندن مستقیم نداد'); x.blocked = true; throw x; }
-    const { title, subtitle, pairs, texts, images, labels } = acc;
-    const raw = [title, subtitle, ...pairs.map(([k, v]) => `${k}: ${v}`), ...labels.filter(x => x !== title), ...texts].join('\n');
+    const { title, subtitle, pairs, texts, images, labels, desc, carousel, biz } = acc;
+    // فقط متن اصلی آگهی (نه متن مخصوص گوگل یا تکرارها)
+    const mainDesc = desc.length ? desc.join('\n\n') : (texts.filter(t => t.length < 4000 && !/^\s*آگهی\s.{2,90}\sدر دیوار/.test(t)).sort((a, b) => b.length - a.length)[0] || '');
+    const raw = [title, subtitle, ...pairs.map(([k, v]) => `${k}: ${v}`), ...labels.filter(x => x !== title), mainDesc].join('\n');
     const out = W.parseAdText(raw, pairs);
     if (title) out.title = title;
-    out.description = (texts.filter(t => t.length < 4000).join('\n\n') || out.description || '').slice(0, 3800);
-    out._images = [...new Set(images)].filter(u => !/(logo|icon|avatar|placeholder)/i.test(u)).slice(0, 20);
+    out.description = W.cleanDesc(mainDesc).slice(0, 3800);
+    out._images = W.cleanImages(carousel.length ? carousel : images);
+    out._biz = biz;
+    out._age = W.ageDays(subtitle, [...pairs.map(p => p.join(' ')), ...texts].join('\n'));
     out._labels = [subtitle, ...labels].filter(Boolean);
     out._token = token;
     return out;
@@ -169,9 +218,11 @@
   // آیا آگهی‌دهنده بنگاه/مشاور املاک است؟ (برای جدا کردن آگهی‌های شخصی)
   // برچسب‌های دیوار (نام آگهی‌دهنده / نشان کسب‌وکار) معتبرترند؛ در متن، جمله‌هایی مثل «مشاورین املاک تماس نگیرند» نشانه آگهی شخصی است
   W.isAgency = d => {
-    // فقط متن خود آگهی (عنوان و توضیحات) بررسی می‌شود؛ برچسب‌های صفحه دیوار مثل «املاک تهران» گمراه‌کننده‌اند
+    // ۱) خود دیوار در اطلاعات آگهی نوع آگهی‌دهنده را می‌گوید (کسب‌وکار املاک / شخصی)
+    if ((d?._biz || []).some(x => /real.?estate|business|agency|consultant|premium|کسب/i.test(x) && !/personal|شخصی/i.test(x))) return true;
+    // ۲) متن خود آگهی؛ «مشاورین املاک تماس نگیرند» نشانه آگهی شخصی است و حذف می‌شود
     const text = norm([d?.title, d?.description].join('\n')).replace(/(مشاور(?:ین|ان)?(?:\s*محترم)?\s*املاک|بنگاه(?:ها|داران)?|املاکی(?:ها)?)[^.\n!]{0,30}(تماس\s*نگیر|نگیرند|نپذیر|معذور|ممنوع|نزنند)/g, '');
-    return /(?:^|\n)\s*(?:املاک|مشاور املاک|آژانس املاک)\s+[؀-ۿ]+|مشاور(?:ین)? املاک\s+[؀-ۿ]+\s*(?:$|\n)|کد\s*مشاور/.test(text);
+    return /(?:^|\n)\s*(?:املاک|مشاور املاک|آژانس املاک)\s+[\u0600-\u06FF]+|مشاور(?:ین)? املاک\s+[\u0600-\u06FF]+\s*(?:$|\n)|کد\s*مشاور|خرید\s*و\s*فروش|فروش\s*و\s*خرید|واریزی(?:\s*های)?\s*متنوع|فایل(?:\s*های)?\s*(?:متنوع|بیشتر|مشابه)|مشاوره\s*(?:رایگان|تخصصی)|کارشناس\s*(?:فروش|املاک)/.test(text);
   };
 
   // توکن‌های آگهی‌های یک صفحه جستجوی دیوار (مثلا https://divar.ir/s/tehran/buy-apartment?user_type=personal)
