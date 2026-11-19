@@ -367,7 +367,19 @@ function GitHubDB() {
     async addLead() { }, async leads() { return []; }, async updateLead() { },
     // «فایل‌های دیوار»: لینک‌هایی که کارمندان پیدا می‌کنند، برای همه کارمندان
     nameOf(id) { const u = P?.staff.find(x => x.id === id); if (!u) return '—'; return u.role === 'admin' && id !== dev.uid && dev.uid !== ownerId() ? 'مدیر' : u.full_name; },
-    async divarList() { if (!staff()) deny(); await loadPriv(); return clone({ items: P.divar || [], searches: P.divarSearches || [] }); },
+    async divarList() { if (!staff()) deny(); await loadPriv(); return clone({ items: P.divar || [], searches: P.divarSearches || [], ignore: P.divarIgnore || [] }); },
+    // ثبت یک آگهی دیوار + پیش‌نویس مخفی آن، در یک ذخیره (تا گیت‌هاب از تعداد زیاد ذخیره‌ها جلوگیری نکند)
+    async divarImport(x, l, pv) {
+      if (!admin()) deny();
+      return clone(await mutate(d => {
+        d.divar = d.divar || []; const tok = Divar.tokenOf(x.url);
+        if (tok && (d.divar.some(y => Divar.tokenOf(y.url) === tok) || (d.divarIgnore || []).includes(tok))) throw new Error('تکراری');
+        const t = new Date().toISOString(); let lid = null;
+        if (l) { lid = ++d.seq; d.listings.push({ ...l, id: lid, views: 0, featured: false, verified: false, created_at: t, updated_at: t, agent_id: l.agent_id || dev.uid }); if (pv) d.priv[lid] = pv; }
+        const n = { ...x, id: uid8(), by: dev.uid, at: t, status: 'new', ...(lid ? { listing_id: lid } : {}) };
+        d.divar = [n, ...d.divar].slice(0, 500); return n;
+      }, 'آگهی دیوار', false));
+    },
     async divarAdd(x) {
       if (!staff()) deny();
       return clone(await mutate(d => {
@@ -378,7 +390,8 @@ function GitHubDB() {
       }, 'فایل دیوار', false));
     },
     async divarUpdate(id, patch) { if (!staff()) deny(); await mutate(d => { const x = (d.divar || []).find(y => y.id === id); if (x) Object.assign(x, patch, { by_status: dev.uid, at_status: new Date().toISOString() }); }, 'فایل دیوار', false); },
-    async divarDelete(id) { await mutate(d => { const x = (d.divar || []).find(y => y.id === id); if (!x) return; if (!admin() && x.by !== dev.uid) deny(); d.divar = d.divar.filter(y => y.id !== id); }, 'حذف فایل دیوار', false); },
+    async divarDelete(id) { await mutate(d => { const x = (d.divar || []).find(y => y.id === id); if (!x) return; if (!admin() && x.by !== dev.uid) deny(); d.divar = d.divar.filter(y => y.id !== id);
+      const tok = Divar.tokenOf(x.url); if (tok) d.divarIgnore = [tok, ...(d.divarIgnore || []).filter(t => t !== tok)].slice(0, 3000); }, 'حذف فایل دیوار', false); },   // حذف‌شده‌ها دوباره خودکار اضافه نشوند
     async divarSaveSearches(list) { if (!admin()) deny(); await mutate(d => { d.divarSearches = list; }, 'جستجوهای دیوار', false); },
     // حجم مخازن (گیت‌هاب با کمی تأخیر به‌روز می‌کند)
     async storage() {
@@ -547,14 +560,21 @@ function DemoDB() {
       return new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(blob); });
     },
     nameOf(id) { return D.profiles.find(p => p.id === id)?.full_name || '—'; },
-    async divarList() { if (!isStaff()) deny(); return clone({ items: D.divar || [], searches: D.divarSearches || [{ name: 'آپارتمان فروشی تهران — فقط شخصی', url: 'https://divar.ir/s/tehran/buy-apartment?user_type=personal' }] }); },
+    async divarList() { if (!isStaff()) deny(); return clone({ items: D.divar || [], ignore: D.divarIgnore || [], searches: D.divarSearches || [{ name: 'آپارتمان فروشی تهران — فقط شخصی', url: 'https://divar.ir/s/tehran/buy-apartment?user_type=personal' }] }); },
     async divarAdd(x) {
       if (!isStaff()) deny(); D.divar = D.divar || []; const tok = Divar.tokenOf(x.url);
       if (tok && D.divar.some(y => Divar.tokenOf(y.url) === tok)) throw new Error('این آگهی قبلا در فهرست هست');
       const n = { ...x, id: 'dv' + (++D.seq), by: uid, at: new Date().toISOString(), status: 'new' }; D.divar.unshift(n); save(); return clone(n);
     },
     async divarUpdate(id, patch) { const x = (D.divar || []).find(y => y.id === id); if (x) { Object.assign(x, patch); save(); } },
-    async divarDelete(id) { const x = (D.divar || []).find(y => y.id === id); if (x && !isAdmin() && x.by !== uid) deny(); D.divar = (D.divar || []).filter(y => y.id !== id); save(); },
+    async divarDelete(id) { const x = (D.divar || []).find(y => y.id === id); if (x && !isAdmin() && x.by !== uid) deny(); D.divar = (D.divar || []).filter(y => y.id !== id); if (x) D.divarIgnore = [Divar.tokenOf(x.url), ...(D.divarIgnore || [])]; save(); },
+    async divarImport(x, l, pv) {
+      if (!isAdmin()) deny(); D.divar = D.divar || []; const tok = Divar.tokenOf(x.url);
+      if (tok && (D.divar.some(y => Divar.tokenOf(y.url) === tok) || (D.divarIgnore || []).includes(tok))) throw new Error('تکراری');
+      const t = new Date().toISOString(); let lid = null;
+      if (l) { lid = ++D.seq; D.listings.push({ ...l, id: lid, views: 0, featured: false, verified: false, created_at: t, updated_at: t, agent_id: l.agent_id || uid }); if (pv) { D.priv = D.priv.filter(p => p.listing_id !== lid); D.priv.push({ ...pv, listing_id: lid }); } }
+      const n = { ...x, id: 'dv' + (++D.seq), by: uid, at: t, status: 'new', ...(lid ? { listing_id: lid } : {}) }; D.divar.unshift(n); save(); return clone(n);
+    },
     async divarSaveSearches(list) { if (!isAdmin()) deny(); D.divarSearches = list; save(); },
     reset() { localStorage.removeItem(KEY); localStorage.removeItem('amlak-demo-user'); }
   };
@@ -594,7 +614,9 @@ function renderChrome(name) {
   $('#demoReset')?.addEventListener('click', () => { if (confirm('همه داده‌های نمایشی پاک و از نو ساخته شود؟')) { DB.reset(); location.reload(); } });
 }
 
+let RID = 0;
 async function route() {
+  const my = ++RID, hash = location.hash;
   const [name, arg] = (location.hash.slice(1) || 'sale').split('/');
   renderChrome(['l', 'agent'].includes(name) ? (S.lastList || 'sale') : name === 'd' ? 'designs' : ['edit', 'dedit'].includes(name) ? 'panel' : name);
   window.scrollTo(0, 0);
@@ -618,8 +640,10 @@ async function route() {
     }
   } catch (e) {
     console.error(e);
-    v.innerHTML = `<div class="empty">${I.empty}<p>${esc(e.message || e)}</p><button class="btn" onclick="location.reload()">تلاش دوباره</button></div>`;
+    if (my === RID) v.innerHTML = `<div class="empty">${I.empty}<p>${esc(e.message || e)}</p><button class="btn" onclick="location.reload()">تلاش دوباره</button></div>`;
   }
+  // اگر وسط بارگذاری این صفحه کاربر به صفحه دیگری رفته، ممکن است این صفحه دیرتر کشیده شده باشد؛ صفحه فعلی را دوباره نشان بده
+  if (my !== RID && location.hash !== hash && !S.rerouting) { S.rerouting = true; setTimeout(() => { S.rerouting = false; route(); }, 0); }
 }
 
 /* =====================================================================
@@ -1230,51 +1254,49 @@ function notify(title, body) {
   try { if (window.Notification?.permission === 'granted') new Notification(title, { body, icon: 'icons/icon-192.png' }); } catch { }
 }
 async function watchOnce() {
-  const { items, searches } = await DB.divarList();
+  const { items, searches, ignore = [] } = await DB.divarList();
   if (!searches.length) throw new Error('اول یک «جستجوی آماده» دیوار ذخیره کنید (پایین همین صفحه)');
-  const seenAll = store.get('amlak-watch-seen', {}), known = new Set(items.map(x => Divar.tokenOf(x.url)));
-  let fresh = 0, blocked = 0, baseline = false;
+  // هر آگهی‌ای که در نتیجه جستجو هست و هنوز در فهرست نیست (و دستی حذف نشده) اضافه می‌شود
+  const known = new Set([...items.map(x => Divar.tokenOf(x.url)), ...ignore]);
+  const fails = store.get('amlak-watch-fail', {}), c = wcfg(), PER_TICK = 5;
+  let fresh = 0, blocked = 0, pending = 0;
   for (const sr of searches) {
     let tokens;
     try { tokens = await Divar.searchTokens(sr.url); } catch (e) { blocked++; continue; }
-    const seen = seenAll[sr.url];
-    if (!seen) { seenAll[sr.url] = tokens.slice(0, 600); baseline = true; WATCH.msg =`شروع شد؛ ${fa(tokens.length)} آگهی فعلی نادیده گرفته شد و از این به بعد آگهی‌های تازه اضافه می‌شود`; continue; }
-    const news = tokens.filter(t => !seen.includes(t) && !known.has(t)).slice(0, 6);
-    for (const t of news) {
-      seen.unshift(t); known.add(t);
+    const todo = tokens.filter(t => !known.has(t) && (fails[t] || 0) < 9);
+    pending += todo.length;
+    for (const t of todo) {
+      if (fresh >= PER_TICK) break;
+      known.add(t);
       const url = 'https://divar.ir/v/' + t;
-      let d = {}; try { d = await Divar.fetchAd(url); } catch { }
-      if (d.title && Divar.isAgency(d)) { WATCH.skipped++; continue; }
+      let d = {};
+      try { d = await Divar.fetchAd(url); } catch (e) { if (/پیدا نشد/.test(e.message)) { fails[t] = 9; continue; } }
+      if (!d.title) { fails[t] = (fails[t] || 0) + 1; if (fails[t] < 3) continue; }   // خوانده نشد: دو بار دیگر امتحان، بعد بدون جزئیات اضافه شود
+      if (c.skipAgency && d.title && Divar.isAgency(d)) { WATCH.skipped++; fails[t] = 9; continue; }
       const { _images = [], _labels, _token, ...parsed } = d;
       if (parsed.description) parsed.description = parsed.description.slice(0, 1500);
-      let item;
-      try { item = await DB.divarAdd({ url, title: parsed.title || 'آگهی تازه دیوار', note: '🤖 خودکار — ' + sr.name, parsed, auto: true }); }
-      catch { continue; }   // تکراری (دستگاه دیگری زودتر اضافه کرده)
-      WATCH.added++; fresh++;
-      if (wcfg().drafts && parsed.title) {
-        try {
-          const l = await DB.saveListing({ deal: parsed.deal || 'sale', ptype: parsed.ptype || 'apartment', misc_kind: parsed.misc_kind || null, status: 'hidden', title: parsed.title.slice(0, 120),
-            city: parsed.city || '', district: parsed.district || '', price: parsed.deal === 'rent' ? null : parsed.price ?? null, deposit: parsed.deal === 'rent' ? parsed.deposit ?? null : null,
-            rent: parsed.deal === 'rent' ? parsed.rent ?? null : null, area: parsed.area ?? null, land_area: parsed.land_area ?? null, rooms: parsed.rooms ?? null, floor: parsed.floor ?? null,
-            floors: parsed.floors ?? null, year_built: parsed.year_built ?? null, features: parsed.features || [], description: parsed.description || '', images: _images.slice(0, 12), agent_id: S.me.id }, true);
-          await DB.savePrivate(l.id, { owner_name: '', owner_phone: '', exact_address: '', notes: 'ثبت خودکار از دیوار — قبل از انتشار با مالک تماس بگیرید', source_url: url });
-          await DB.divarUpdate(item.id, { listing_id: l.id });
-        } catch (e) { WATCH.msg = '⚠️ ساخت پیش‌نویس: ' + e.message; }
-      }
+      const listing = c.drafts && parsed.title ? { deal: parsed.deal || 'sale', ptype: parsed.ptype || 'apartment', misc_kind: parsed.misc_kind || null, status: 'hidden', title: parsed.title.slice(0, 120),
+        city: parsed.city || '', district: parsed.district || '', price: parsed.deal === 'rent' ? null : parsed.price ?? null, deposit: parsed.deal === 'rent' ? parsed.deposit ?? null : null,
+        rent: parsed.deal === 'rent' ? parsed.rent ?? null : null, area: parsed.area ?? null, land_area: parsed.land_area ?? null, rooms: parsed.rooms ?? null, floor: parsed.floor ?? null,
+        floors: parsed.floors ?? null, year_built: parsed.year_built ?? null, features: parsed.features || [], description: parsed.description || '', images: _images.slice(0, 12), agent_id: S.me.id } : null;
+      const pv = listing ? { owner_name: '', owner_phone: '', exact_address: '', notes: 'ثبت خودکار از دیوار — قبل از انتشار با مالک تماس بگیرید', source_url: url } : null;
+      try { await DB.divarImport({ url, title: parsed.title || 'آگهی دیوار', note: '🤖 خودکار — ' + sr.name, parsed, auto: true }, listing, pv); }
+      catch (e) { if (!/تکراری/.test(e.message)) { WATCH.msg = '⚠️ ذخیره: ' + e.message; fails[t] = (fails[t] || 0) + 1; known.delete(t); } continue; }
+      delete fails[t]; WATCH.added++; fresh++;
       notify('آگهی تازه دیوار', parsed.title || url);
     }
-    seenAll[sr.url] = seen.slice(0, 600);
   }
-  store.set('amlak-watch-seen', seenAll);
+  store.set('amlak-watch-fail', fails); localStorage.removeItem('amlak-watch-seen');
   if (blocked === searches.length) throw new Error('دیوار اجازه جستجوی مستقیم از داخل اپ را نداد');
-  if (!baseline) WATCH.msg = fresh ? `${fa(fresh)} آگهی تازه اضافه شد` : 'آگهی تازه‌ای نبود';
-  if (fresh) { S.panel = null; if (location.hash.startsWith('#panel/divar')) viewPanel('divar'); }
+  const left = Math.max(0, pending - fresh);
+  WATCH.msg = fresh ? `${fa(fresh)} آگهی اضافه شد${left ? ` — ${fa(left)} آگهی دیگر در صف (بررسی بعدی)` : ''}` : 'آگهی تازه‌ای نبود';
+  if (fresh) { S.panel = null; if (location.hash.startsWith('#panel/divar')) viewPanel('divar', false); }
 }
 function watchUI() {
   document.title = (WATCH.on ? '🤖 ' : '') + (CFG.name || 'املاک');
   const st = $('#wst'); if (!st) return;
   st.innerHTML = WATCH.on ? `<span class="tag ok">روشن</span> ${WATCH.busy ? 'در حال بررسی…' : esc(WATCH.msg)}${WATCH.last ? ` · آخرین بررسی ${WATCH.last.toLocaleTimeString('fa-IR')}` : ''}<br>
-    این دستگاه تا حالا: ${fa(WATCH.added)} آگهی اضافه کرد · ${fa(WATCH.skipped)} آگهی املاکی رد شد` : '<span class="tag">خاموش</span>';
+    این دستگاه تا حالا: ${fa(WATCH.added)} آگهی اضافه کرد${wcfg().skipAgency ? ` · ${fa(WATCH.skipped)} آگهی املاکی رد شد` : ''}` : '<span class="tag">خاموش</span>';
   const on = $('#won'); if (on) on.checked = WATCH.on;
 }
 
@@ -1293,10 +1315,11 @@ async function panelDivar(pt) {
       <div class="row"><h3 style="flex:1">🤖 دیده‌بان دیوار</h3><label class="check"><input type="checkbox" id="won"> روشن</label></div>
       <div class="grid2"><label class="f"><span>هر چند ثانیه یک بار</span><select id="wev">${opts([5, 10, 20, 30, 60].map(x => [x, fa(x) + ' ثانیه']), c.every)}</select></label>
         <label class="check" style="align-self:end;min-height:42px"><input type="checkbox" id="wdr"${c.drafts ? ' checked' : ''}> ثبت خودکار پیش‌نویس به نام من</label></div>
+      <label class="check small"><input type="checkbox" id="wag"${c.skipAgency ? ' checked' : ''}> رد کردن آگهی‌هایی که به نظر املاکی هستند (اگر لینک جستجو را روی «شخصی» گذاشته‌اید لازم نیست)</label>
       <div class="row"><button type="button" class="btn sm" id="wnt">🔔 فعال کردن اعلان روی این دستگاه</button></div>
       ${window.Divar?.bridgeOn() ? '<div class="small" style="color:var(--ok)">✅ کمک‌یار دیوار روی این مرورگر نصب است</div>' : '<div class="small" style="color:var(--warn)">⚠️ برای خواندن از دیوار، «کمک‌یار دیوار» روی این مرورگر نصب نیست — <a href="#helper">راهنمای نصب (یک بار، ۲ دقیقه)</a></div>'}
       <div class="small" id="wst"></div>
-      <p class="small muted" style="margin:0">تا وقتی اپ روی همین دستگاه باز است (مثلا کامپیوتر دفتر)، «جستجوهای آماده» پایین صفحه مرتب بررسی می‌شوند. هر آگهی تازه این‌جا اضافه می‌شود و اعلان می‌آید. آگهی‌های املاکی رد می‌شوند. پیش‌نویس‌ها <b>مخفی</b> می‌مانند تا شما مشاور را انتخاب کنید و «انتشار» را بزنید.</p>
+      <p class="small muted" style="margin:0">تا وقتی اپ روی همین دستگاه باز است (مثلا کامپیوتر دفتر)، «جستجوهای آماده» پایین صفحه مرتب بررسی می‌شوند. همه آگهی‌های آن جستجوها (آگهی‌های فعلی و هر آگهی تازه) این‌جا اضافه می‌شوند و اعلان می‌آید. پیش‌نویس‌ها <b>مخفی</b> می‌مانند تا شما مشاور را انتخاب کنید و «انتشار» را بزنید.</p>
     </div>` : ''}
     <form class="card stack" id="dvf"><h3>افزودن آگهی از دیوار</h3>
       <p class="small muted" style="margin:0">آگهی شخصی خوبی در دیوار دیدید؟ لینکش را اینجا بگذارید تا بقیه هم ببینند و کسی با مالک تماس بگیرد.</p>
@@ -1346,6 +1369,7 @@ async function panelDivar(pt) {
     $('#won').addEventListener('change', e => e.target.checked ? watchStart() : watchStop());
     $('#wev').addEventListener('change', e => wsave({ every: +e.target.value }));
     $('#wdr').addEventListener('change', e => wsave({ drafts: e.target.checked }));
+    $('#wag').addEventListener('change', e => wsave({ skipAgency: e.target.checked }));
     $('#wnt').addEventListener('click', async () => {
       if (!window.Notification) return toast('این مرورگر اعلان ندارد؛ صدا و پیام داخل اپ کار می‌کند');
       const r = await Notification.requestPermission(); toast(r === 'granted' ? 'اعلان فعال شد' : 'اجازه اعلان داده نشد');
