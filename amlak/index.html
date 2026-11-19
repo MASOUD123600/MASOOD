@@ -84,6 +84,7 @@ label.f>span{display:block;margin-bottom:4px}
 .chip.on{background:var(--soft);border-color:var(--accent);color:var(--accent);font-weight:700}
 .tag{display:inline-block;font-size:12px;border-radius:8px;padding:1px 8px;background:var(--sunk);color:var(--muted);white-space:nowrap}
 .tag.sale{background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--accent)}
+.tag.misc{background:color-mix(in srgb,#7a5cc0 16%,transparent);color:#7a5cc0}
 .tag.rent{background:color-mix(in srgb,var(--gold) 18%,transparent);color:var(--gold)}
 .tag.ok{background:color-mix(in srgb,var(--ok) 15%,transparent);color:var(--ok)}
 .tag.warn{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
@@ -197,13 +198,14 @@ nav.tabs a.on{color:var(--accent);font-weight:700}
       <span class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M10 21v-6h4v6"/></svg></span>
       <span><b id="appName">املاک</b><small id="appTag">خرید، فروش و اجاره</small></span>
     </a>
-    <div class="who" id="who"></div>
+    <div class="row" style="gap:8px;flex-wrap:nowrap"><div class="who" id="who"></div><a class="iconbtn" href="#fav" id="favBtn" aria-label="نشان‌شده‌ها"></a></div>
   </header>
   <div class="demo" id="demoBar" hidden></div>
   <main id="view"><div class="spin"></div></main>
 </div>
 <nav class="tabs"><div class="in" id="tabs"></div></nav>
 <script src="config.js"></script>
+<script src="divar.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

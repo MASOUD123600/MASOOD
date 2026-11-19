@@ -9,6 +9,11 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
 /* ---------------- ثابت‌ها ---------------- */
+const MISC_KINDS = { presale: 'پیش‌فروش', swap: 'معاوضه', partner: 'مشارکت در ساخت', old: 'کلنگی', goodwill: 'سرقفلی', other: 'سایر' };
+const DEAL_NAME = { sale: 'فروش', rent: 'رهن و اجاره', misc: 'متفرقه' };
+const dealLabel = l => l.deal === 'misc' ? (MISC_KINDS[l.misc_kind] || 'متفرقه') : DEAL_NAME[l.deal] || '';
+const fullDate = d => d ? new Date(d).toLocaleDateString('fa-IR', { year: 'numeric', month: 'long', day: 'numeric' }) + ' ساعت ' + new Date(d).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }) : '—';
+const DIVAR_ST = { new: ['جدید', 'warn'], called: ['تماس گرفته شد', ''], listed: ['ثبت شد', 'ok'], rejected: ['رد شد', 'bad'] };
 const PTYPES = { apartment: 'آپارتمان', villa: 'خانه ویلایی', land: 'زمین', commercial: 'مغازه / تجاری', office: 'اداری', garden: 'باغ / ویلا' };
 const STATUS = {
   active: ['فعال', 'ok'], reserved: ['در حال معامله', 'warn'], sold: ['فروخته شد', 'bad'],
@@ -69,6 +74,8 @@ const I = {
   chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>',
   share: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></svg>',
   plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+  misc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>',
+  copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>',
   empty: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="m9.5 13 5 5M14.5 13l-5 5"/></svg>'
 };
 
@@ -358,6 +365,21 @@ function GitHubDB() {
     },
     async deleteDesign(id) { if (!admin()) deny(); await mutate(d => { d.designs = d.designs.filter(y => y.id !== id); }, 'حذف نمونه‌کار'); },
     async addLead() { }, async leads() { return []; }, async updateLead() { },
+    // «فایل‌های دیوار»: لینک‌هایی که کارمندان پیدا می‌کنند، برای همه کارمندان
+    nameOf(id) { const u = P?.staff.find(x => x.id === id); if (!u) return '—'; return u.role === 'admin' && id !== dev.uid && dev.uid !== ownerId() ? 'مدیر' : u.full_name; },
+    async divarList() { if (!staff()) deny(); await loadPriv(); return clone({ items: P.divar || [], searches: P.divarSearches || [] }); },
+    async divarAdd(x) {
+      if (!staff()) deny();
+      return clone(await mutate(d => {
+        d.divar = d.divar || []; const tok = Divar.tokenOf(x.url);
+        if (tok && d.divar.some(y => Divar.tokenOf(y.url) === tok)) throw new Error('این آگهی قبلا در فهرست هست');
+        const n = { ...x, id: uid8(), by: dev.uid, at: new Date().toISOString(), status: 'new' };
+        d.divar = [n, ...d.divar].slice(0, 500); return n;
+      }, 'فایل دیوار', false));
+    },
+    async divarUpdate(id, patch) { if (!staff()) deny(); await mutate(d => { const x = (d.divar || []).find(y => y.id === id); if (x) Object.assign(x, patch, { by_status: dev.uid, at_status: new Date().toISOString() }); }, 'فایل دیوار', false); },
+    async divarDelete(id) { await mutate(d => { const x = (d.divar || []).find(y => y.id === id); if (!x) return; if (!admin() && x.by !== dev.uid) deny(); d.divar = d.divar.filter(y => y.id !== id); }, 'حذف فایل دیوار', false); },
+    async divarSaveSearches(list) { if (!admin()) deny(); await mutate(d => { d.divarSearches = list; }, 'جستجوهای دیوار', false); },
     // حجم مخازن (گیت‌هاب با کمی تأخیر به‌روز می‌کند)
     async storage() {
       if (!admin()) return [];
@@ -524,6 +546,16 @@ function DemoDB() {
       const blob = await compress(file, 900, .7);
       return new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(blob); });
     },
+    nameOf(id) { return D.profiles.find(p => p.id === id)?.full_name || '—'; },
+    async divarList() { if (!isStaff()) deny(); return clone({ items: D.divar || [], searches: D.divarSearches || [{ name: 'آپارتمان فروشی تهران — فقط شخصی', url: 'https://divar.ir/s/tehran/buy-apartment?user_type=personal' }] }); },
+    async divarAdd(x) {
+      if (!isStaff()) deny(); D.divar = D.divar || []; const tok = Divar.tokenOf(x.url);
+      if (tok && D.divar.some(y => Divar.tokenOf(y.url) === tok)) throw new Error('این آگهی قبلا در فهرست هست');
+      const n = { ...x, id: 'dv' + (++D.seq), by: uid, at: new Date().toISOString(), status: 'new' }; D.divar.unshift(n); save(); return clone(n);
+    },
+    async divarUpdate(id, patch) { const x = (D.divar || []).find(y => y.id === id); if (x) { Object.assign(x, patch); save(); } },
+    async divarDelete(id) { const x = (D.divar || []).find(y => y.id === id); if (x && !isAdmin() && x.by !== uid) deny(); D.divar = (D.divar || []).filter(y => y.id !== id); save(); },
+    async divarSaveSearches(list) { if (!isAdmin()) deny(); D.divarSearches = list; save(); },
     reset() { localStorage.removeItem(KEY); localStorage.removeItem('amlak-demo-user'); }
   };
 }
@@ -552,7 +584,8 @@ function renderChrome(name) {
   $('#appName').textContent = CFG.name || 'املاک';
   $('#appTag').textContent = CFG.tagline || '';
   $('#who').innerHTML = S.me ? `<b>${esc(S.me.full_name || S.me.email)}</b><br>${ROLES[S.me.role] || ''}` : '';
-  const tabs = [['sale', 'فروش', I.sale], ['rent', 'اجاره', I.rent], ['designs', 'طراحی‌ها', I.design], ['fav', 'نشان‌شده', I.heartO],
+  const fb = $('#favBtn'); if (fb) { fb.innerHTML = name === 'fav' ? I.heart : I.heartO; fb.style.color = name === 'fav' ? '#e8475a' : ''; }
+  const tabs = [['sale', 'فروش', I.sale], ['rent', 'اجاره', I.rent], ['misc', 'متفرقه', I.misc], ['designs', 'طراحی‌ها', I.design],
     S.me ? ['panel', 'پنل', I.panel] : ['login', 'مشاوران', I.user]];
   $('#tabs').innerHTML = tabs.map(([h, t, ic]) => `<a href="#${h}" class="${name === h ? 'on' : ''}">${ic}<span>${t}</span></a>`).join('');
   const db = $('#demoBar');
@@ -569,7 +602,7 @@ async function route() {
   v.innerHTML = '<div class="spin"></div>';
   try {
     switch (name) {
-      case 'sale': case 'rent': S.lastList = name; await viewList(name); break;
+      case 'sale': case 'rent': case 'misc': S.lastList = name; await viewList(name); break;
       case 'l': await viewListing(+arg); break;
       case 'agent': await viewAgent(arg); break;
       case 'designs': await viewDesigns(); break;
@@ -591,9 +624,9 @@ async function route() {
 /* =====================================================================
    مشتری: فهرست آگهی‌ها
    ===================================================================== */
-const DEF_F = { q: '', ptype: '', max: '', maxRent: '', minArea: '', rooms: '', feats: [], hideRes: false, sort: 'new' };
+const DEF_F = { q: '', kind: '', ptype: '', max: '', maxRent: '', minArea: '', rooms: '', feats: [], hideRes: false, sort: 'new' };
 function priceLine(l) {
-  if (l.deal === 'sale') return `<div class="price num">${money(l.price)}</div>`;
+  if (l.deal !== 'rent') return `<div class="price num">${money(l.price)}</div>`;
   return `<div class="price num">رهن ${money(l.deposit, false)} <small>|</small> اجاره ${l.rent ? money(l.rent, false) : '<small>رهن کامل</small>'}</div>`;
 }
 function metaLine(l) {
@@ -604,11 +637,11 @@ function card(l) {
   const f = favs().includes(l.id), dim = !['active', 'reserved'].includes(l.status);
   return `<a class="lc${dim ? ' dim' : ''}" href="#l/${l.id}">
     <div class="ph"><img loading="lazy" src="${esc(cover(l))}" alt="">
-      <div class="badges">${l.featured ? '<span class="tag gold">ویژه</span>' : ''}${l.verified ? '<span class="tag">✓ تأیید شده</span>' : ''}${l.status !== 'active' ? `<span class="tag">${STATUS[l.status][0]}</span>` : ''}</div>
+      <div class="badges">${l.deal === 'misc' ? `<span class="tag">${esc(dealLabel(l))}</span>` : ''}${l.featured ? '<span class="tag gold">ویژه</span>' : ''}${l.verified ? '<span class="tag">✓ تأیید شده</span>' : ''}${l.status !== 'active' ? `<span class="tag">${STATUS[l.status][0]}</span>` : ''}</div>
       <button class="fav${f ? ' on' : ''}" data-fav="${l.id}" aria-label="نشان کردن">${f ? I.heart : I.heartO}</button></div>
     <div class="bd">${priceLine(l)}<div class="t">${esc(l.title)}</div>
       <div class="meta">${metaLine(l)}</div>
-      <div class="loc">${esc([l.district, l.city].filter(Boolean).join('، '))} · ${PTYPES[l.ptype] || ''} · ${ago(l.created_at)}</div></div></a>`;
+      <div class="loc">${esc([l.district, l.city].filter(Boolean).join('، '))} · ${PTYPES[l.ptype] || ''}</div></div></a>`;
 }
 function toggleFav(id) {
   const f = favs(), i = f.indexOf(id);
@@ -630,14 +663,15 @@ function opts(list, val, empty) {
 async function viewList(deal) {
   const all = await loadListings(); await loadAgents();
   const F = S.filters[deal] = { ...DEF_F, ...(S.filters[deal] || {}) };
-  const sale = deal === 'sale';
+  const sale = deal !== 'rent';
   const maxOpts = sale ? [2, 3, 5, 8, 12, 20, 40, 80].map(b => [b * 1e9, `تا ${fa(b)} میلیارد`])
     : [100, 300, 500, 1000, 2000, 5000].map(m => [m * 1e6, m >= 1000 ? `رهن تا ${fa(m / 1000)} میلیارد` : `رهن تا ${fa(m)} میلیون`]);
   const nActive = ['ptype', 'max', 'maxRent', 'minArea', 'rooms'].filter(k => F[k]).length + F.feats.length + (F.hideRes ? 1 : 0);
   view().innerHTML = `
-    <h2>${sale ? 'خرید ملک' : 'رهن و اجاره'}</h2>
+    <h2>${deal === 'sale' ? 'خرید ملک' : deal === 'rent' ? 'رهن و اجاره' : 'متفرقه'}</h2>${deal === 'misc' ? '<p class="muted small" style="margin:0 0 6px">پیش‌فروش، معاوضه، مشارکت در ساخت، کلنگی و سرقفلی</p>' : ''}
     <div class="search"><input id="q" type="search" placeholder="جستجوی محله، عنوان یا کد آگهی…" value="${esc(F.q)}">
       <button class="iconbtn" id="tgl" aria-label="فیلترها" style="${nActive ? 'border-color:var(--accent);color:var(--accent)' : ''}">${I.filter}</button></div>
+    ${deal === 'misc' ? `<div class="chips" style="margin-bottom:10px" id="kinds">${[['', 'همه'], ...Object.entries(MISC_KINDS)].map(([k, t]) => `<button class="chip${F.kind === k ? ' on' : ''}" data-k="${k}">${t}</button>`).join('')}</div>` : ''}
     <div class="chips" style="margin-bottom:10px" id="ptypes">${[['', 'همه'], ...Object.entries(PTYPES)].map(([k, t]) => `<button class="chip${F.ptype === k ? ' on' : ''}" data-p="${k}">${t}</button>`).join('')}</div>
     <div class="card filters" id="flt" ${S.showF ? '' : 'hidden'}>
       <div class="grid2">
@@ -658,7 +692,7 @@ async function viewList(deal) {
     const pv = l => sale ? (l.price || 0) : (l.deposit || 0) + (l.rent || 0) * 33;   // تبدیل اجاره به رهن (هر ۱ میلیون اجاره ≈ ۳۳ میلیون رهن) برای مرتب‌سازی
     let r = all.filter(l => l.deal === deal && ['active', 'reserved'].includes(l.status)
       && (!q || l.id === qn || [l.title, l.district, l.city, l.description].join(' ').includes(q))
-      && (!F.ptype || l.ptype === F.ptype)
+      && (!F.ptype || l.ptype === F.ptype) && (!F.kind || l.misc_kind === F.kind)
       && (!F.max || (sale ? (l.price || 0) : (l.deposit || 0)) <= +F.max)
       && (!F.maxRent || (+F.maxRent < 0 ? !l.rent : (l.rent || 0) <= +F.maxRent))
       && (!F.minArea || (l.area || l.land_area || 0) >= +F.minArea)
@@ -673,6 +707,7 @@ async function viewList(deal) {
   };
   let tq; $('#q').addEventListener('input', e => { clearTimeout(tq); tq = setTimeout(() => { F.q = e.target.value; draw(); }, 200); });
   $('#tgl').addEventListener('click', () => { S.showF = !S.showF; $('#flt').hidden = !S.showF; });
+  $$('#kinds .chip').forEach(b => b.addEventListener('click', () => { F.kind = b.dataset.k; $$('#kinds .chip').forEach(x => x.classList.toggle('on', x === b)); draw(); }));
   $$('#ptypes .chip').forEach(b => b.addEventListener('click', () => { F.ptype = b.dataset.p; $$('#ptypes .chip').forEach(x => x.classList.toggle('on', x === b)); draw(); }));
   $$('#feats .chip').forEach(b => b.addEventListener('click', () => { const i = F.feats.indexOf(b.dataset.f); i < 0 ? F.feats.push(b.dataset.f) : F.feats.splice(i, 1); b.classList.toggle('on'); draw(); }));
   ['max', 'maxRent', 'minArea', 'rooms', 'sort'].forEach(k => $('#' + k)?.addEventListener('change', e => { F[k] = e.target.value; draw(); }));
@@ -725,25 +760,26 @@ async function viewListing(id) {
   const l = all.find(x => x.id === id);
   if (!l) { view().innerHTML = `<div class="empty">${I.empty}<p>این آگهی پیدا نشد یا دیگر فعال نیست.</p><a class="btn" href="#sale">بازگشت</a></div>`; return; }
   if (!sessionStorage.getItem('v' + id)) { sessionStorage.setItem('v' + id, 1); DB.incViews(id).catch(() => { }); }
-  const a = agentOf(l.agent_id), edit = canEdit(l), sale = l.deal === 'sale';
+  const a = agentOf(l.agent_id), edit = canEdit(l), sale = l.deal !== 'rent';
   if (S.lastList !== 'fav') renderChrome(S.lastList = l.deal);
-  const sp = [['نوع ملک', PTYPES[l.ptype]], ['متراژ بنا', l.area && fa(l.area) + ' متر'], ['متراژ زمین', l.land_area && fa(l.land_area) + ' متر'],
+  const sp = [...(l.deal === 'misc' ? [['نوع واگذاری', MISC_KINDS[l.misc_kind] || 'متفرقه']] : []), ['نوع ملک', PTYPES[l.ptype]], ['متراژ بنا', l.area && fa(l.area) + ' متر'], ['متراژ زمین', l.land_area && fa(l.land_area) + ' متر'],
     ['اتاق خواب', l.rooms != null && l.rooms !== '' && fa(l.rooms)], ['طبقه', l.floor != null && l.floor !== '' && (fa(l.floor) + (l.floors ? ' از ' + fa(l.floors) : ''))],
     ['سال ساخت', l.year_built && faStr(l.year_built)], ['کد آگهی', fa(l.id)], ['بازدید', DB.caps.views && fa(l.views)]].filter(x => x[1]);
   const fav = favs().includes(l.id);
   view().innerHTML = `<button class="back" onclick="history.length>1?history.back():location.hash='${l.deal}'">${I.back} بازگشت</button>
   <div class="detail"><div class="stack">
     ${gallery(l.images, l.id)}
-    <div class="row"><span class="tag ${l.deal}">${sale ? 'فروش' : 'رهن و اجاره'}</span>${l.verified ? '<span class="tag ok">✓ تأیید شده توسط بنگاه</span>' : ''}${l.status !== 'active' ? `<span class="tag ${STATUS[l.status][1]}">${STATUS[l.status][0]}</span>` : ''}
+    <div class="row"><span class="tag ${l.deal}">${esc(dealLabel(l))}</span>${l.verified ? '<span class="tag ok">✓ تأیید شده توسط بنگاه</span>' : ''}${l.status !== 'active' ? `<span class="tag ${STATUS[l.status][1]}">${STATUS[l.status][0]}</span>` : ''}
       <span class="spacer"></span><button class="iconbtn" id="shr" aria-label="اشتراک">${I.share}</button><button class="iconbtn" id="fv" aria-label="نشان" style="color:${fav ? '#e8475a' : ''}">${fav ? I.heart : I.heartO}</button></div>
     <h2>${esc(l.title)}</h2>
-    <div class="muted">${esc([l.district, l.city].filter(Boolean).join('، '))} · ${ago(l.created_at)}</div>
-    <div class="card">${sale ? `<div class="muted small">قیمت کل</div><div style="font-size:22px;font-weight:800" class="num">${money(l.price)}</div>${l.price && l.area ? `<div class="muted small">قیمت هر متر: ${money(Math.round(l.price / l.area))}</div>` : ''}`
+    <div class="muted">${esc([l.district, l.city].filter(Boolean).join('، '))}</div>
+    <div class="card">${sale ? `<div class="muted small">${l.deal === 'misc' ? 'قیمت / ارزش' : 'قیمت کل'}</div><div style="font-size:22px;font-weight:800" class="num">${money(l.price)}</div>${l.price && l.area ? `<div class="muted small">قیمت هر متر: ${money(Math.round(l.price / l.area))}</div>` : ''}`
       : `<div class="grid2"><div><div class="muted small">رهن / ودیعه</div><div style="font-size:19px;font-weight:800">${money(l.deposit)}</div></div><div><div class="muted small">اجاره ماهانه</div><div style="font-size:19px;font-weight:800">${l.rent ? money(l.rent) : 'رهن کامل'}</div></div></div>`}</div>
     <div class="specs">${sp.map(([k, v]) => `<div class="spec"><small>${k}</small><b>${v}</b></div>`).join('')}</div>
     ${l.features?.length ? `<div><h3 style="margin-bottom:6px">امکانات</h3><div class="feat">${l.features.map(f => `<span>${esc(f)}</span>`).join('')}</div></div>` : ''}
     ${l.description ? `<div><h3 style="margin-bottom:6px">توضیحات</h3><div class="desc">${esc(l.description)}</div></div>` : ''}
     <div id="priv"></div>
+    <div id="adtxt"></div>
   </div>
   <aside class="stack">
     ${edit ? `<div class="card row"><b style="flex:1">مدیریت آگهی</b><a class="btn sm primary" href="#edit/${l.id}">ویرایش</a></div>` : ''}
@@ -778,8 +814,52 @@ async function viewListing(id) {
         ${p.owner_phone ? `<div class="spec"><small>تلفن مالک</small><b><a href="tel:${esc(p.owner_phone)}">${esc(faStr(p.owner_phone))}</a></b></div>` : ''}</div>
         ${p.exact_address ? `<div><small class="muted">آدرس دقیق</small><div>${esc(p.exact_address)}</div></div>` : ''}
         ${p.notes ? `<div><small class="muted">یادداشت</small><div class="desc">${esc(p.notes)}</div></div>` : ''}` : '<p class="muted small">هنوز ثبت نشده. از «ویرایش» اضافه کنید.</p>'}
+      <div class="specs"><div class="spec"><small>تاریخ ثبت آگهی</small><b style="font-weight:500">${fullDate(l.created_at)}</b></div>
+        <div class="spec"><small>آخرین ویرایش</small><b style="font-weight:500">${fullDate(l.updated_at || l.created_at)}</b></div></div>
+      ${p?.source_url ? `<div><small class="muted">آگهی منبع (دیوار)</small><div><a href="${esc(p.source_url)}" target="_blank" rel="noopener" dir="ltr">${esc(p.source_url.slice(0, 60))}</a></div></div>` : ''}
       ${isAdmin() ? `<div class="muted small">مشاور ثبت‌کننده: ${esc(agentOf(l.agent_id)?.full_name || '—')}</div>` : ''}</div>`;
+    adTextCard($('#adtxt'), l, a);
   }
+}
+
+async function copyText(t) {
+  try { await navigator.clipboard.writeText(t); toast('کپی شد'); }
+  catch { const x = document.createElement('textarea'); x.value = t; document.body.append(x); x.select(); document.execCommand('copy'); x.remove(); toast('کپی شد'); }
+}
+async function savePhotos(l) {
+  const urls = (l.images || []).filter(u => u && !u.startsWith('ph:'));
+  if (!urls.length) return toast('این آگهی عکس ندارد');
+  toast('در حال آماده کردن عکس‌ها…', 2000);
+  const files = [];
+  for (const [i, u] of urls.entries()) { try { const b = await (await fetch(u)).blob(); files.push(new File([b], `amlak-${l.id}-${i + 1}.jpg`, { type: b.type || 'image/jpeg' })); } catch { } }
+  if (!files.length) return toast('دریافت عکس‌ها ممکن نشد');
+  if (navigator.canShare?.({ files })) { try { await navigator.share({ files, title: l.title }); return; } catch (e) { if (e.name === 'AbortError') return; } }
+  for (const f of files) { const a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = f.name; document.body.append(a); a.click(); a.remove(); await new Promise(r => setTimeout(r, 350)); }
+  toast(`${fa(files.length)} عکس ذخیره شد`);
+}
+// متن آماده برای ثبت همین آگهی در دیوار (فقط برای مشاور همان آگهی و مدیر)
+function adTextCard(box, l, a) {
+  if (!box || !window.Divar) return;
+  const ads = Divar.adText(l, { ptypes: PTYPES, kinds: MISC_KINDS, agent: a, brand: CFG.name });
+  const warn = Divar.priceWarning(l), open = S.showAd === l.id; S.showAd = null;
+  box.innerHTML = `<details class="card" id="adbox"${open ? ' open' : ''}><summary style="cursor:pointer"><b>📝 متن آماده برای دیوار</b> <span class="small muted">· کپی کنید و در دیوار بگذارید</span></summary>
+    <div class="stack" style="margin-top:10px">
+      ${warn ? `<div class="card" style="border-color:var(--bad);color:var(--bad);padding:10px">⚠️ ${esc(warn)} قبل از انتشار، قیمت را در «ویرایش» درست کنید.</div>` : ''}
+      <div class="seg" id="adv">${ads.map((x, i) => `<button type="button" data-i="${i}" class="${i ? '' : 'on'}">${x.name}</button>`).join('')}</div>
+      <label class="f"><span>عنوان (دیوار حداکثر ۵۰ حرف می‌پذیرد)</span><div class="row" style="flex-wrap:nowrap"><input readonly id="adT"><button type="button" class="btn sm" id="cpT">${I.copy} کپی</button></div></label>
+      <label class="f"><span>متن آگهی</span><textarea readonly id="adB" rows="12" style="min-height:220px"></textarea></label>
+      <div class="row"><button type="button" class="btn primary" id="cpB" style="flex:1">${I.copy} کپی متن</button><button type="button" class="btn" id="dlI">ذخیره عکس‌ها</button></div>
+      <a class="btn" href="https://divar.ir/new" target="_blank" rel="noopener">باز کردن «ثبت آگهی» در دیوار</a>
+      <p class="small muted" style="margin:0">در دیوار: دسته‌بندی را انتخاب کنید، عکس‌ها را از گالری بگذارید و عنوان و متن را paste کنید. لینک و شماره تلفن را داخل متن ننویسید؛ دیوار قبول نمی‌کند.</p>
+    </div></details>`;
+  let cur = 0;
+  const show = i => { cur = i; $('#adT').value = ads[i].title; $('#adB').value = ads[i].body; $$('#adv button').forEach(b => b.classList.toggle('on', +b.dataset.i === i)); };
+  $$('#adv button').forEach(b => b.addEventListener('click', () => show(+b.dataset.i)));
+  $('#cpT').addEventListener('click', () => copyText(ads[cur].title));
+  $('#cpB').addEventListener('click', () => copyText(ads[cur].body));
+  $('#dlI').addEventListener('click', () => savePhotos(l));
+  show(0);
+  if (open) setTimeout(() => $('#adbox')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 300);
 }
 
 async function viewAgent(id) {
@@ -932,7 +1012,7 @@ async function viewPanel(tab, reuse) {
   // فقط مشاوران قابل‌دیدن شمرده می‌شوند (مدیرهای پنهان در شمارش لو نروند)
   const nAgents = admin ? (await DB.profiles()).filter(p => p.active && p.role === 'agent').length : 0;
   const newLeads = leads.filter(x => x.status === 'new').length;
-  const tabs = [['listings', admin ? 'همه آگهی‌ها' : 'آگهی‌های من'], ...(DB.caps.leads ? [['leads', `درخواست‌ها${newLeads ? ` (${fa(newLeads)})` : ''}`]] : []),
+  const tabs = [['listings', admin ? 'همه آگهی‌ها' : 'آگهی‌های من'], ...(DB.divarList ? [['divar', 'فایل‌های دیوار']] : []), ...(DB.caps.leads ? [['leads', `درخواست‌ها${newLeads ? ` (${fa(newLeads)})` : ''}`]] : []),
     ...(admin ? [['agents', 'مشاوران'], ['designs', 'طراحی‌ها']] : []), ...(DB.isOwner?.() ? [['admins', 'مدیران']] : []), ['me', 'حساب من']];
   view().innerHTML = `
     <div class="row" style="margin-bottom:12px"><h2 style="flex:1">${admin ? 'پنل مدیریت' : 'پنل مشاور'}</h2>
@@ -954,6 +1034,7 @@ async function viewPanel(tab, reuse) {
   if (DB.needsMigration?.()) runMigration();
   if ($('#stor')) showStorage();
   if (tab === 'listings') panelListings(pt, mine, agents);
+  else if (tab === 'divar' && DB.divarList) await panelDivar(pt);
   else if (tab === 'leads' && DB.caps.leads) panelLeads(pt, leads, all);
   else if (tab === 'agents' && admin) await panelAgents(pt, all, leads);
   else if (tab === 'admins' && DB.isOwner?.()) await panelAdmins(pt, all);
@@ -998,16 +1079,16 @@ function panelListings(pt, rows, agents) {
   pt.innerHTML = `<div class="grid3" style="margin-bottom:10px">
       ${admin ? `<select id="fa">${opts(agents.map(a => [a.id, a.full_name]), F.agent, 'همه مشاوران')}</select>` : ''}
       <select id="fs">${opts(Object.entries(STATUS).map(([k, v]) => [k, v[0]]), F.status, 'همه وضعیت‌ها')}</select>
-      <select id="fd">${opts([['sale', 'فروش'], ['rent', 'اجاره']], F.deal, 'فروش و اجاره')}</select>
+      <select id="fd">${opts(Object.entries(DEAL_NAME), F.deal, 'همه')}</select>
       <input id="fq" type="search" placeholder="جستجو یا کد" value="${esc(F.q)}"></div><div class="tbl" id="rows"></div>`;
   const draw = () => {
     const qn = toNum(F.q);
     const r = rows.filter(l => (!F.agent || l.agent_id === F.agent) && (!F.status || l.status === F.status) && (!F.deal || l.deal === F.deal)
       && (!F.q || l.id === qn || (l.title + l.district).includes(F.q)));
     $('#rows').innerHTML = r.length ? r.map(l => `<div class="tr"><a href="#l/${l.id}"><img src="${esc(cover(l))}" alt="" loading="lazy"></a>
-      <div class="mid"><b>${esc(l.title)}</b><div class="small muted">کد ${fa(l.id)} · ${l.deal === 'sale' ? money(l.price) : 'رهن ' + money(l.deposit, false)} ${DB.caps.views ? ` · ${fa(l.views)} بازدید` : ''}
+      <div class="mid"><b>${esc(l.title)}</b><div class="small muted">کد ${fa(l.id)} · ${l.deal === 'misc' ? esc(dealLabel(l)) + ' · ' : ''}${l.deal !== 'rent' ? money(l.price) : 'رهن ' + money(l.deposit, false)} · ثبت ${new Date(l.created_at).toLocaleDateString('fa-IR')} ${DB.caps.views ? ` · ${fa(l.views)} بازدید` : ''}
       ${admin ? ` · ${esc(agentOf(l.agent_id)?.full_name || 'مشاور غیرفعال')}` : ''}</div>
-      <div class="row" style="margin-top:4px"><select data-st="${l.id}" style="width:auto;min-height:32px;padding:3px 8px;font-size:13px">${opts(Object.entries(STATUS).filter(([k]) => l.deal === 'sale' ? k !== 'rented' : k !== 'sold').map(([k, v]) => [k, v[0]]), l.status)}</select>
+      <div class="row" style="margin-top:4px"><select data-st="${l.id}" style="width:auto;min-height:32px;padding:3px 8px;font-size:13px">${opts(Object.entries(STATUS).filter(([k]) => l.deal === 'rent' ? k !== 'sold' : k !== 'rented').map(([k, v]) => [k, v[0]]), l.status)}</select>
       ${l.featured ? '<span class="tag warn">ویژه</span>' : ''}${l.verified ? '<span class="tag ok">تأیید شده</span>' : ''}</div></div>
       <a class="btn sm" href="#edit/${l.id}">ویرایش</a></div>`).join('') : '<div class="empty">هیچ آگهی‌ای نیست. با دکمه «ثبت آگهی» شروع کنید.</div>';
     $$('[data-st]').forEach(s => s.addEventListener('change', async () => {
@@ -1093,6 +1174,64 @@ async function panelAgents(pt, all, leads) {
   }));
 }
 
+// «فایل‌های دیوار»: لینک آگهی‌هایی که کارمندان در دیوار پیدا می‌کنند؛ همه مشاوران و مدیرها می‌بینند
+async function panelDivar(pt) {
+  const { items, searches } = await DB.divarList();
+  const F = S.dvF || (S.dvF = { st: 'open' });
+  const sel = 'style="width:auto;min-height:32px;padding:3px 8px;font-size:13px"';
+  const summary = p => [p?.deal && (p.deal === 'misc' ? MISC_KINDS[p.misc_kind] : DEAL_NAME[p.deal]), p?.area && fa(p.area) + ' متر', p?.land_area && !p?.area && 'زمین ' + fa(p.land_area) + ' متر', p?.rooms != null && fa(p.rooms) + ' خواب',
+    p?.price && money(p.price), p?.deposit && 'رهن ' + money(p.deposit, false), p?.rent && 'اجاره ' + money(p.rent, false), p?.district].filter(Boolean).join(' · ');
+  pt.innerHTML = `
+    <form class="card stack" id="dvf"><h3>افزودن آگهی از دیوار</h3>
+      <p class="small muted" style="margin:0">آگهی شخصی خوبی در دیوار دیدید؟ لینکش را اینجا بگذارید تا بقیه هم ببینند و کسی با مالک تماس بگیرد.</p>
+      <input name="url" required placeholder="لینک آگهی در دیوار" dir="ltr" inputmode="url">
+      <textarea name="text" rows="2" placeholder="(اختیاری) متن آگهی را هم کپی کنید و اینجا بچسبانید تا مشخصات خودکار خوانده شود"></textarea>
+      <input name="note" placeholder="یادداشت (اختیاری) مثلا: مالک شخصی است">
+      <button class="btn primary">افزودن به فهرست</button></form>
+    ${searches.length || isAdmin() ? `<div class="card stack" style="margin-top:12px"><b>جستجوهای آماده در دیوار</b>
+      <div class="chips">${searches.map((x, i) => `<a class="chip" target="_blank" rel="noopener" href="${esc(x.url)}">${esc(x.name)}</a>${isAdmin() ? `<button class="chip" data-rs="${i}" aria-label="حذف" style="color:var(--bad)">×</button>` : ''}`).join('') || '<span class="small muted">هنوز جستجویی ذخیره نشده</span>'}</div>
+      ${isAdmin() ? `<form class="row" id="dss"><input name="name" placeholder="نام (مثلا: آپارتمان فروشی سعادت‌آباد)" style="flex:2;min-width:160px"><input name="url" placeholder="لینک جستجو در دیوار" dir="ltr" style="flex:3;min-width:160px"><button class="btn sm">ذخیره</button></form>
+      <p class="small muted" style="margin:0">در دیوار فیلترها را بزنید (مثلا «آگهی‌دهنده: شخصی»)، لینک صفحه را کپی کنید و اینجا ذخیره کنید تا همه مشاوران با یک لمس باز کنند.</p>` : ''}</div>` : ''}
+    <div class="row" style="margin:14px 0 8px"><h3 style="flex:1">فهرست (${fa(items.length)})</h3>
+      <select id="dvs" ${sel}>${opts([['open', 'باز (جدید و تماس گرفته)'], ['all', 'همه'], ...Object.entries(DIVAR_ST).map(([k, v]) => [k, v[0]])], F.st)}</select></div>
+    <div class="tbl" id="dvl"></div>`;
+  const draw = () => {
+    const r = items.filter(x => F.st === 'all' || (F.st === 'open' ? ['new', 'called'].includes(x.status) : x.status === F.st));
+    $('#dvl').innerHTML = r.length ? r.map(x => `<div class="tr" style="align-items:flex-start"><div class="mid">
+      <div class="row"><b style="flex:1;white-space:normal">${esc(x.title || 'آگهی دیوار')}</b><span class="tag ${DIVAR_ST[x.status]?.[1] || ''}">${DIVAR_ST[x.status]?.[0] || ''}</span></div>
+      ${summary(x.parsed) ? `<div class="small">${esc(summary(x.parsed))}</div>` : ''}
+      ${x.note ? `<div class="small muted">📝 ${esc(x.note)}</div>` : ''}
+      <div class="small muted">${esc(DB.nameOf(x.by))} · ${ago(x.at)}${x.listing_id ? ` · <a href="#l/${x.listing_id}">آگهی کد ${fa(x.listing_id)}</a>` : ''}</div>
+      <div class="row" style="margin-top:6px"><a class="btn sm" href="${esc(x.url)}" target="_blank" rel="noopener">باز کردن در دیوار</a>
+        ${x.status !== 'listed' ? `<button class="btn sm primary" data-mk="${x.id}">ثبت به‌عنوان آگهی</button>` : ''}
+        <select data-dst="${x.id}" ${sel}>${opts(Object.entries(DIVAR_ST).map(([k, v]) => [k, v[0]]), x.status)}</select>
+        ${isAdmin() || x.by === S.me.id ? `<button class="btn sm ghost" data-dd="${x.id}" style="color:var(--bad)">حذف</button>` : ''}</div></div></div>`).join('')
+      : '<div class="empty">موردی نیست.</div>';
+    $$('[data-mk]').forEach(b => b.addEventListener('click', () => { const x = items.find(y => y.id === b.dataset.mk); S.prefill = { ...(x.parsed || {}), title: x.parsed?.title || x.title, source_url: x.url, _divarId: x.id }; go('edit/new'); }));
+    $$('[data-dst]').forEach(s => s.addEventListener('change', async () => { try { await DB.divarUpdate(s.dataset.dst, { status: s.value }); items.find(y => y.id === s.dataset.dst).status = s.value; toast('ذخیره شد', 1200); draw(); } catch (e) { toast(e.message); } }));
+    $$('[data-dd]').forEach(b => b.addEventListener('click', async () => { if (!confirm('از فهرست حذف شود؟')) return; try { await DB.divarDelete(b.dataset.dd); viewPanel('divar', true); } catch (e) { toast(e.message); } }));
+  };
+  $('#dvs').addEventListener('change', e => { F.st = e.target.value; draw(); });
+  $('#dvf').addEventListener('submit', async e => {
+    e.preventDefault(); const f = e.target, b = $('button', f), url = f.url.value.trim(), text = f.text.value.trim();
+    if (!Divar.tokenOf(url)) return toast('لینک آگهی دیوار درست نیست');
+    b.disabled = true; b.textContent = 'در حال افزودن…';
+    let parsed = {};
+    try { parsed = await Divar.fetchAd(url); } catch { }
+    if (text) parsed = { ...Divar.parseAdText(text), ...Object.fromEntries(Object.entries(parsed).filter(([, v]) => v != null && v !== '')) };
+    delete parsed._images; if (parsed.description) parsed.description = parsed.description.slice(0, 1500);
+    try { await DB.divarAdd({ url, note: f.note.value.trim(), title: parsed.title || 'آگهی دیوار', parsed }); toast('اضافه شد'); viewPanel('divar', true); }
+    catch (err) { toast(err.message); b.disabled = false; b.textContent = 'افزودن به فهرست'; }
+  });
+  $('#dss')?.addEventListener('submit', async e => {
+    e.preventDefault(); const name = e.target.name.value.trim(), url = e.target.url.value.trim();
+    if (!name || !/^https:\/\/divar\.ir\//.test(url)) return toast('نام و لینک جستجوی دیوار (شروع با https://divar.ir/) را وارد کنید');
+    try { await DB.divarSaveSearches([...searches, { name, url }]); viewPanel('divar', true); } catch (err) { toast(err.message); }
+  });
+  $$('[data-rs]').forEach(b => b.addEventListener('click', async () => { if (!confirm('این جستجو حذف شود؟')) return; try { await DB.divarSaveSearches(searches.filter((_, i) => i !== +b.dataset.rs)); viewPanel('divar', true); } catch (e) { toast(e.message); } }));
+  draw();
+}
+
 async function panelAdmins(pt, all) {
   const { staff, log } = await DB.activity();
   const by = Object.fromEntries(staff.map(s => [s.id, s]));
@@ -1167,7 +1306,7 @@ function uploader(el, list, max = 20) {
 async function viewEdit(arg) {
   const all = await loadListings(true), agents = await loadAgents(), admin = isAdmin();
   const isNew = arg === 'new';
-  const l = isNew ? { deal: S.lastList === 'rent' ? 'rent' : 'sale', ptype: 'apartment', features: [], images: [], status: 'active', city: '' } : all.find(x => x.id === +arg);
+  const l = isNew ? { deal: ['rent', 'misc'].includes(S.lastList) ? S.lastList : 'sale', ptype: 'apartment', features: [], images: [], status: 'active', city: '' } : all.find(x => x.id === +arg);
   if (!l || (!isNew && !canEdit(l))) { view().innerHTML = `<div class="empty">${I.empty}<p>این آگهی پیدا نشد یا اجازه ویرایش آن را ندارید.</p></div>`; return; }
   const priv = isNew ? {} : (await DB.getPrivate(l.id).catch(() => null)) || {};
   const imgs = [...(l.images || [])], feats = new Set(l.features || []);
@@ -1175,8 +1314,16 @@ async function viewEdit(arg) {
   view().innerHTML = `<button class="back" onclick="history.back()">${I.back} بازگشت</button>
   <h2 style="margin-bottom:12px">${isNew ? 'ثبت آگهی جدید' : `ویرایش آگهی کد ${fa(l.id)}`}</h2>
   <form id="ef" class="stack" novalidate>
+    <details class="card" id="imp"${isNew ? ' open' : ''}><summary style="cursor:pointer"><b>📥 پر کردن خودکار از دیوار</b></summary>
+      <div class="stack" style="margin-top:10px">
+        <input id="impUrl" placeholder="لینک آگهی در دیوار" dir="ltr" inputmode="url">
+        <textarea id="impText" rows="3" placeholder="اگر لینک کار نکرد: متن آگهی را در دیوار کپی کنید و اینجا بچسبانید"></textarea>
+        <button type="button" class="btn" id="impGo">پر کردن فیلدها</button>
+        <p class="small muted" style="margin:0">فقط آگهی مالکانی را وارد کنید که با آن‌ها هماهنگ کرده‌اید. بعد از پر شدن، همه فیلدها را یک بار بررسی کنید.</p>
+      </div></details>
     <div class="card stack">
-      <div class="seg" id="deal"><button type="button" data-d="sale" class="${l.deal === 'sale' ? 'on' : ''}">فروش</button><button type="button" data-d="rent" class="${l.deal === 'rent' ? 'on' : ''}">رهن و اجاره</button></div>
+      <div class="seg" id="deal">${Object.entries(DEAL_NAME).map(([k, t]) => `<button type="button" data-d="${k}" class="${l.deal === k ? 'on' : ''}">${t}</button>`).join('')}</div>
+      <label class="f" id="pmisc" ${l.deal === 'misc' ? '' : 'hidden'}><span>نوع واگذاری</span><select name="misc_kind">${opts(Object.entries(MISC_KINDS), l.misc_kind || 'presale')}</select></label>
       <div class="grid2"><label class="f"><span>نوع ملک</span><select name="ptype">${opts(Object.entries(PTYPES), l.ptype)}</select></label>
         <label class="f"><span>وضعیت</span><select name="status">${opts(Object.entries(STATUS).map(([k, v]) => [k, v[0]]), l.status)}</select></label></div>
       <label class="f"><span>عنوان آگهی *</span><input name="title" required maxlength="120" value="${esc(l.title || '')}" placeholder="مثلا: آپارتمان ۱۲۰ متری نوساز با ویو ابدی"></label>
@@ -1184,8 +1331,9 @@ async function viewEdit(arg) {
         <label class="f"><span>محله *</span><input name="district" required value="${esc(l.district || '')}" placeholder="سعادت‌آباد"></label></div>
     </div>
     <div class="card stack"><h3>قیمت (تومان)</h3>
-      <div id="psale" ${l.deal === 'sale' ? '' : 'hidden'}>${num('price', 'قیمت کل', l.price, 'مثلا ۱۴۵۰۰۰۰۰۰۰۰ — صفر یعنی توافقی', true)}</div>
+      <div id="psale" ${l.deal !== 'rent' ? '' : 'hidden'}>${num('price', 'قیمت کل / ارزش', l.price, 'مثلا ۱۴۵۰۰۰۰۰۰۰۰ — صفر یعنی توافقی', true)}</div>
       <div id="prent" class="grid2" ${l.deal === 'rent' ? '' : 'hidden'}>${num('deposit', 'رهن / ودیعه', l.deposit, '', true)}${num('rent', 'اجاره ماهانه (۰ = رهن کامل)', l.rent, '', true)}</div>
+      <div id="pwarn" class="small" style="color:var(--bad)" hidden></div>
     </div>
     <div class="card stack"><h3>مشخصات</h3>
       <div class="grid3">${num('area', 'متراژ بنا (متر)', l.area)}${num('land_area', 'متراژ زمین', l.land_area)}${num('rooms', 'اتاق خواب', l.rooms)}
@@ -1199,6 +1347,8 @@ async function viewEdit(arg) {
         <label class="f"><span>تلفن مالک</span><input name="owner_phone" inputmode="tel" value="${esc(priv.owner_phone || '')}"></label></div>
       <label class="f"><span>آدرس دقیق</span><input name="exact_address" value="${esc(priv.exact_address || '')}"></label>
       <label class="f"><span>یادداشت داخلی</span><textarea name="notes" rows="2">${esc(priv.notes || '')}</textarea></label>
+      <label class="f"><span>لینک آگهی منبع در دیوار (اختیاری)</span><input name="source_url" dir="ltr" value="${esc(priv.source_url || '')}"></label>
+      ${isNew ? '' : `<div class="small muted">تاریخ ثبت: ${fullDate(l.created_at)} · آخرین ویرایش: ${fullDate(l.updated_at || l.created_at)}</div>`}
     </div>
     ${admin ? `<div class="card stack"><h3>تنظیمات ادمین</h3>
       <label class="f"><span>مشاور مسئول این آگهی</span><select name="agent_id">${opts([...agents.map(a => [a.id, a.full_name]), ...(l.agent_id && !agents.some(a => a.id === l.agent_id) ? [[l.agent_id, 'مشاور فعلی (غیرفعال)']] : [])], l.agent_id || S.me.id)}</select></label>
@@ -1207,7 +1357,42 @@ async function viewEdit(arg) {
     <div class="row"><button class="btn primary" style="flex:1" id="sv">${isNew ? 'ثبت آگهی' : 'ذخیره تغییرات'}</button>${isNew ? '' : '<button type="button" class="btn danger" id="del">حذف</button>'}</div>
   </form>`;
   let deal = l.deal;
-  $$('#deal button').forEach(b => b.addEventListener('click', () => { deal = b.dataset.d; $$('#deal button').forEach(x => x.classList.toggle('on', x === b)); $('#psale').hidden = deal !== 'sale'; $('#prent').hidden = deal !== 'rent'; }));
+  const setDeal = d => { deal = d; $$('#deal button').forEach(x => x.classList.toggle('on', x.dataset.d === d)); $('#psale').hidden = d === 'rent'; $('#prent').hidden = d !== 'rent'; $('#pmisc').hidden = d !== 'misc'; checkPrice(); };
+  const f0 = $('#ef'), val = k => toNum(f0[k]?.value);
+  const checkPrice = () => { const w = window.Divar ? Divar.priceWarning({ deal, price: val('price'), area: val('area'), land_area: val('land_area'), deposit: val('deposit'), rent: val('rent') }) : ''; $('#pwarn').hidden = !w; $('#pwarn').textContent = w ? '⚠️ ' + w : ''; };
+  $$('#deal button').forEach(b => b.addEventListener('click', () => setDeal(b.dataset.d)));
+  ['price', 'area', 'land_area', 'deposit', 'rent'].forEach(k => f0[k]?.addEventListener('input', checkPrice));
+  // پر کردن فرم از اطلاعات دیوار
+  const fill = d => {
+    let n = 0; const setv = (k, v, money) => { if (v == null || v === '' || !f0[k]) return; f0[k].value = money ? fa(v) : typeof v === 'number' ? faStr(v) : v; f0[k].dispatchEvent(new Event('input')); n++; };
+    if (d.deal) setDeal(d.deal);
+    if (d.misc_kind) f0.misc_kind.value = d.misc_kind;
+    if (d.ptype) { f0.ptype.value = d.ptype; n++; }
+    setv('title', d.title && d.title.slice(0, 120)); setv('city', d.city); setv('district', d.district);
+    setv('price', d.price, true); setv('deposit', d.deposit, true); setv('rent', d.rent, true);
+    for (const k of ['area', 'land_area', 'rooms', 'floor', 'floors', 'year_built']) setv(k, d[k]);
+    if (d.description && !f0.description.value.trim()) setv('description', d.description);
+    for (const ft of d.features || []) { if (!feats.has(ft)) { feats.add(ft); $(`#fe [data-f="${ft}"]`)?.classList.add('on'); n++; } }
+    if (d.source_url) f0.source_url.value = d.source_url;
+    checkPrice();
+    return n;
+  };
+  $('#impGo').addEventListener('click', async () => {
+    const url = $('#impUrl').value.trim(), text = $('#impText').value.trim(), b = $('#impGo');
+    if (!url && !text) return toast('لینک یا متن آگهی را وارد کنید');
+    b.disabled = true; b.textContent = 'در حال خواندن…';
+    let d = {}, fromLink = false;
+    try {
+      if (url) { try { d = await Divar.fetchAd(url); fromLink = true; } catch (e) { if (!text) { toast(e.blocked ? 'دیوار اجازه خواندن مستقیم نداد؛ متن آگهی را کپی کنید و در کادر پایین بچسبانید' : e.message, 6000); $('#impText').focus(); return; } } }
+      if (text) d = { ...Divar.parseAdText(text), ...Object.fromEntries(Object.entries(d).filter(([, v]) => v != null && v !== '')) };
+      if (url) d.source_url = url;
+      const n = fill(d);
+      toast(n ? `${fa(n)} فیلد ${fromLink ? 'از دیوار' : 'از متن'} پر شد؛ لطفا بررسی کنید` : 'اطلاعاتی پیدا نشد؛ فیلدها را دستی پر کنید', 4500);
+      if (n) $('#imp').open = false;
+    } finally { b.disabled = false; b.textContent = 'پر کردن فیلدها'; }
+  });
+  const fromBoard = isNew && S.prefill ? S.prefill : null; S.prefill = null;
+  if (fromBoard) { const n = fill(fromBoard); $('#imp').open = false; toast(`${fa(n)} فیلد از «فایل‌های دیوار» پر شد؛ بررسی کنید`, 4000); }
   $$('#fe .chip').forEach(b => b.addEventListener('click', () => { feats.has(b.dataset.f) ? feats.delete(b.dataset.f) : feats.add(b.dataset.f); b.classList.toggle('on'); }));
   $$('[data-money]').forEach(i => { const h = () => { const n = toNum(i.value); i.nextElementSibling.textContent = n != null ? money(n) : ''; }; i.addEventListener('input', h); h(); });
   uploader($('#up'), imgs, 12);
@@ -1218,9 +1403,11 @@ async function viewEdit(arg) {
     if (!v('title')) return toast('عنوان آگهی را وارد کنید'), f.title.focus();
     if (!v('district')) return toast('محله را وارد کنید'), f.district.focus();
     if (deal === 'rent' && n('deposit') == null && n('rent') == null) return toast('مبلغ رهن یا اجاره را وارد کنید');
+    const pw = Divar?.priceWarning({ deal, price: n('price'), area: n('area'), land_area: n('land_area'), deposit: n('deposit'), rent: n('rent') });
+    if (pw && !confirm(pw + '\n\nبا همین عدد ذخیره شود؟')) return;
     const rec = {
       ...(isNew ? {} : { id: l.id }), deal, ptype: v('ptype'), status: v('status'), title: v('title'), city: v('city'), district: v('district'),
-      price: deal === 'sale' ? n('price') : null, deposit: deal === 'rent' ? n('deposit') : null, rent: deal === 'rent' ? n('rent') : null,
+      misc_kind: deal === 'misc' ? v('misc_kind') : null, price: deal !== 'rent' ? n('price') : null, deposit: deal === 'rent' ? n('deposit') : null, rent: deal === 'rent' ? n('rent') : null,
       area: n('area'), land_area: n('land_area'), rooms: n('rooms'), floor: toInt(v('floor')), floors: n('floors'), year_built: n('year_built'),
       features: [...feats], description: v('description'), images: imgs,
       ...(admin ? { agent_id: v('agent_id'), featured: f.featured.checked, verified: f.verified.checked } : {})
@@ -1228,8 +1415,10 @@ async function viewEdit(arg) {
     const b = $('#sv'); b.disabled = true;
     try {
       const saved = await DB.saveListing(rec, admin);
-      await DB.savePrivate(saved.id, { owner_name: v('owner_name'), owner_phone: v('owner_phone'), exact_address: v('exact_address'), notes: v('notes') });
-      S.listings = null; toast(isNew ? 'آگهی ثبت شد' : 'ذخیره شد'); go('l/' + saved.id);
+      await DB.savePrivate(saved.id, { owner_name: v('owner_name'), owner_phone: v('owner_phone'), exact_address: v('exact_address'), notes: v('notes'), source_url: v('source_url') });
+      if (fromBoard?._divarId) await DB.divarUpdate(fromBoard._divarId, { status: 'listed', listing_id: saved.id }).catch(() => { });
+      S.listings = null; S.panel = null; if (isNew) S.showAd = saved.id;
+      toast(isNew ? 'آگهی ثبت شد ✓ متن آماده دیوار پایین صفحه است' : 'ذخیره شد', 3500); go('l/' + saved.id);
     } catch (err) { toast(err.message); b.disabled = false; }
   });
   $('#del')?.addEventListener('click', async () => {
