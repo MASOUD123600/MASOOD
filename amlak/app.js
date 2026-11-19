@@ -393,6 +393,15 @@ function GitHubDB() {
     async divarDelete(id) { await mutate(d => { const x = (d.divar || []).find(y => y.id === id); if (!x) return; if (!admin() && x.by !== dev.uid) deny(); d.divar = d.divar.filter(y => y.id !== id);
       const tok = Divar.tokenOf(x.url); if (tok) d.divarIgnore = [tok, ...(d.divarIgnore || []).filter(t => t !== tok)].slice(0, 3000); }, 'حذف فایل دیوار', false); },   // حذف‌شده‌ها دوباره خودکار اضافه نشوند
     async divarSaveSearches(list) { if (!admin()) deny(); await mutate(d => { d.divarSearches = list; }, 'جستجوهای دیوار', false); },
+    async divarResetAuto() {
+      if (!admin()) deny();
+      return mutate(d => {
+        const rows = (d.divar || []).filter(x => x.auto && x.status !== 'listed' && (!x.listing_id || d.listings.find(l => l.id === x.listing_id)?.status === 'hidden'));
+        const ids = new Set(rows.map(x => x.listing_id).filter(Boolean));
+        d.listings = d.listings.filter(l => !ids.has(l.id)); ids.forEach(id => delete d.priv[id]);
+        d.divar = d.divar.filter(x => !rows.includes(x)); return rows.length;
+      }, 'بازسازی پیش‌نویس‌های دیوار', false);
+    },
     // حجم مخازن (گیت‌هاب با کمی تأخیر به‌روز می‌کند)
     async storage() {
       if (!admin()) return [];
@@ -576,6 +585,12 @@ function DemoDB() {
       const n = { ...x, id: 'dv' + (++D.seq), by: uid, at: t, status: 'new', ...(lid ? { listing_id: lid } : {}) }; D.divar.unshift(n); save(); return clone(n);
     },
     async divarSaveSearches(list) { if (!isAdmin()) deny(); D.divarSearches = list; save(); },
+    async divarResetAuto() {
+      if (!isAdmin()) deny();
+      const rows = (D.divar || []).filter(x => x.auto && x.status !== 'listed' && (!x.listing_id || D.listings.find(l => l.id === x.listing_id)?.status === 'hidden'));
+      const ids = new Set(rows.map(x => x.listing_id).filter(Boolean));
+      D.listings = D.listings.filter(l => !ids.has(l.id)); D.priv = D.priv.filter(p => !ids.has(p.listing_id)); D.divar = D.divar.filter(x => !rows.includes(x)); save(); return rows.length;
+    },
     reset() { localStorage.removeItem(KEY); localStorage.removeItem('amlak-demo-user'); }
   };
 }
@@ -1235,7 +1250,7 @@ async function panelAgents(pt, all, leads) {
 
 /* ---------- دیده‌بان دیوار: تا وقتی اپ روی این دستگاه باز است، جستجوهای آماده را مرتب بررسی می‌کند ---------- */
 const WATCH = { on: false, timer: null, busy: false, last: null, msg: '', added: 0, skipped: 0 };
-const wcfg = () => ({ every: 20, drafts: true, ...store.get('amlak-watch', {}) });
+const wcfg = () => ({ every: 20, drafts: true, skipAgency: true, maxAge: 1, ...store.get('amlak-watch', {}) });
 const wsave = p => store.set('amlak-watch', { ...wcfg(), ...p });
 function watchStart() { if (!isAdmin() || !DB.divarList || WATCH.on) return; WATCH.on = true; WATCH.msg = 'در حال شروع…'; wsave({ on: true }); watchUI(); watchTick(); }
 function watchStop() { WATCH.on = false; clearTimeout(WATCH.timer); wsave({ on: false }); WATCH.msg = 'خاموش'; watchUI(); }
@@ -1259,7 +1274,7 @@ async function watchOnce() {
   // هر آگهی‌ای که در نتیجه جستجو هست و هنوز در فهرست نیست (و دستی حذف نشده) اضافه می‌شود
   const known = new Set([...items.map(x => Divar.tokenOf(x.url)), ...ignore]);
   const fails = store.get('amlak-watch-fail', {}), c = wcfg(), PER_TICK = 5;
-  let fresh = 0, blocked = 0, pending = 0;
+  let fresh = 0, blocked = 0, pending = 0, dropped = 0;
   for (const sr of searches) {
     let tokens;
     try { tokens = await Divar.searchTokens(sr.url); } catch (e) { blocked++; continue; }
@@ -1272,14 +1287,15 @@ async function watchOnce() {
       let d = {};
       try { d = await Divar.fetchAd(url); } catch (e) { if (/پیدا نشد/.test(e.message)) { fails[t] = 9; continue; } }
       if (!d.title) { fails[t] = (fails[t] || 0) + 1; if (fails[t] < 3) continue; }   // خوانده نشد: دو بار دیگر امتحان، بعد بدون جزئیات اضافه شود
-      if (c.skipAgency && d.title && Divar.isAgency(d)) { WATCH.skipped++; fails[t] = 9; continue; }
-      const { _images = [], _labels, _token, ...parsed } = d;
+      if (d.title && d._age != null && d._age > +c.maxAge) { WATCH.old = (WATCH.old || 0) + 1; fails[t] = 9; dropped++; continue; }   // قدیمی‌تر از حد مجاز (بر اساس تاریخ انتشار اصلی، نه نردبان)
+      if (c.skipAgency && d.title && Divar.isAgency(d)) { WATCH.skipped++; fails[t] = 9; dropped++; continue; }
+      const { _images = [], _labels, _token, _biz, _age, ...parsed } = d;
       if (parsed.description) parsed.description = parsed.description.slice(0, 1500);
       const listing = c.drafts && parsed.title ? { deal: parsed.deal || 'sale', ptype: parsed.ptype || 'apartment', misc_kind: parsed.misc_kind || null, status: 'hidden', title: parsed.title.slice(0, 120),
         city: parsed.city || '', district: parsed.district || '', price: parsed.deal === 'rent' ? null : parsed.price ?? null, deposit: parsed.deal === 'rent' ? parsed.deposit ?? null : null,
         rent: parsed.deal === 'rent' ? parsed.rent ?? null : null, area: parsed.area ?? null, land_area: parsed.land_area ?? null, rooms: parsed.rooms ?? null, floor: parsed.floor ?? null,
         floors: parsed.floors ?? null, year_built: parsed.year_built ?? null, features: parsed.features || [], description: parsed.description || '', images: _images.slice(0, 12), agent_id: S.me.id } : null;
-      const pv = listing ? { owner_name: '', owner_phone: '', exact_address: '', notes: 'ثبت خودکار از دیوار — قبل از انتشار با مالک تماس بگیرید', source_url: url } : null;
+      const pv = listing ? { owner_name: '', owner_phone: '', exact_address: '', notes: 'ثبت خودکار از دیوار — قبل از انتشار با مالک تماس بگیرید' + (_age != null ? ` (عمر آگهی در دیوار: ${_age ? fa(_age) + ' روز' : 'امروز'})` : ''), source_url: url } : null;
       try { await DB.divarImport({ url, title: parsed.title || 'آگهی دیوار', note: '🤖 خودکار — ' + sr.name, parsed, auto: true }, listing, pv); }
       catch (e) { if (!/تکراری/.test(e.message)) { WATCH.msg = '⚠️ ذخیره: ' + e.message; fails[t] = (fails[t] || 0) + 1; known.delete(t); } continue; }
       delete fails[t]; WATCH.added++; fresh++;
@@ -1288,7 +1304,7 @@ async function watchOnce() {
   }
   store.set('amlak-watch-fail', fails); localStorage.removeItem('amlak-watch-seen');
   if (blocked === searches.length) throw new Error('دیوار اجازه جستجوی مستقیم از داخل اپ را نداد');
-  const left = Math.max(0, pending - fresh);
+  const left = Math.max(0, pending - fresh - dropped);
   WATCH.msg = fresh ? `${fa(fresh)} آگهی اضافه شد${left ? ` — ${fa(left)} آگهی دیگر در صف (بررسی بعدی)` : ''}` : 'آگهی تازه‌ای نبود';
   if (fresh) { S.panel = null; if (location.hash.startsWith('#panel/divar')) viewPanel('divar', false); }
 }
@@ -1296,7 +1312,7 @@ function watchUI() {
   document.title = (WATCH.on ? '🤖 ' : '') + (CFG.name || 'املاک');
   const st = $('#wst'); if (!st) return;
   st.innerHTML = WATCH.on ? `<span class="tag ok">روشن</span> ${WATCH.busy ? 'در حال بررسی…' : esc(WATCH.msg)}${WATCH.last ? ` · آخرین بررسی ${WATCH.last.toLocaleTimeString('fa-IR')}` : ''}<br>
-    این دستگاه تا حالا: ${fa(WATCH.added)} آگهی اضافه کرد${wcfg().skipAgency ? ` · ${fa(WATCH.skipped)} آگهی املاکی رد شد` : ''}` : '<span class="tag">خاموش</span>';
+    این دستگاه تا حالا: ${fa(WATCH.added)} آگهی اضافه کرد${WATCH.old ? ` · ${fa(WATCH.old)} آگهی قدیمی کنار گذاشته شد` : ''}${wcfg().skipAgency ? ` · ${fa(WATCH.skipped)} آگهی املاکی رد شد` : ''}` : '<span class="tag">خاموش</span>';
   const on = $('#won'); if (on) on.checked = WATCH.on;
 }
 
@@ -1315,7 +1331,9 @@ async function panelDivar(pt) {
       <div class="row"><h3 style="flex:1">🤖 دیده‌بان دیوار</h3><label class="check"><input type="checkbox" id="won"> روشن</label></div>
       <div class="grid2"><label class="f"><span>هر چند ثانیه یک بار</span><select id="wev">${opts([5, 10, 20, 30, 60].map(x => [x, fa(x) + ' ثانیه']), c.every)}</select></label>
         <label class="check" style="align-self:end;min-height:42px"><input type="checkbox" id="wdr"${c.drafts ? ' checked' : ''}> ثبت خودکار پیش‌نویس به نام من</label></div>
-      <label class="check small"><input type="checkbox" id="wag"${c.skipAgency ? ' checked' : ''}> رد کردن آگهی‌هایی که به نظر املاکی هستند (اگر لینک جستجو را روی «شخصی» گذاشته‌اید لازم نیست)</label>
+      <label class="f"><span>حداکثر عمر آگهی (از تاریخ انتشار اصلی در دیوار، نردبان حساب نمی‌شود)</span><select id="wmx">${opts([[0, 'فقط آگهی‌های امروز'], [1, 'امروز و دیروز'], [3, 'تا ۳ روز'], [10, 'تا ۱۰ روز'], [30, 'تا یک ماه']], c.maxAge)}</select></label>
+      <label class="check small"><input type="checkbox" id="wag"${c.skipAgency ? ' checked' : ''}> رد کردن آگهی‌های املاکی (بر اساس نوع آگهی‌دهنده در خود دیوار و جمله‌هایی مثل «خرید و فروش ... واریزی‌های متنوع»)</label>
+      <button type="button" class="btn sm ghost" id="wrb" style="align-self:flex-start">🔄 بازسازی پیش‌نویس‌های خودکار منتشرنشده</button>
       <div class="row"><button type="button" class="btn sm" id="wnt">🔔 فعال کردن اعلان روی این دستگاه</button></div>
       ${window.Divar?.bridgeOn() ? '<div class="small" style="color:var(--ok)">✅ کمک‌یار دیوار روی این مرورگر نصب است</div>' : '<div class="small" style="color:var(--warn)">⚠️ برای خواندن از دیوار، «کمک‌یار دیوار» روی این مرورگر نصب نیست — <a href="#helper">راهنمای نصب (یک بار، ۲ دقیقه)</a></div>'}
       <div class="small" id="wst"></div>
@@ -1370,6 +1388,12 @@ async function panelDivar(pt) {
     $('#wev').addEventListener('change', e => wsave({ every: +e.target.value }));
     $('#wdr').addEventListener('change', e => wsave({ drafts: e.target.checked }));
     $('#wag').addEventListener('change', e => wsave({ skipAgency: e.target.checked }));
+    $('#wmx').addEventListener('change', e => wsave({ maxAge: +e.target.value }));
+    $('#wrb').addEventListener('click', async () => {
+      if (!confirm('پیش‌نویس‌های خودکارِ منتشرنشده و ردیف‌هایشان در فهرست پاک می‌شوند تا دیده‌بان آن‌هایی را که با تنظیمات فعلی قبول می‌شوند، تمیز دوباره بسازد. آگهی‌های منتشرشده و آگهی‌هایی که دستی اضافه شده‌اند دست نمی‌خورند. ادامه؟')) return;
+      try { const n = await DB.divarResetAuto(); localStorage.removeItem('amlak-watch-fail'); S.listings = null; S.panel = null; toast(`${fa(n)} پیش‌نویس پاک شد؛ دیده‌بان در بررسی بعدی دوباره می‌سازد`, 4500); viewPanel('divar'); }
+      catch (e) { toast(e.message); }
+    });
     $('#wnt').addEventListener('click', async () => {
       if (!window.Notification) return toast('این مرورگر اعلان ندارد؛ صدا و پیام داخل اپ کار می‌کند');
       const r = await Notification.requestPermission(); toast(r === 'granted' ? 'اعلان فعال شد' : 'اجازه اعلان داده نشد');
