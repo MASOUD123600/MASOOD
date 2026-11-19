@@ -849,7 +849,8 @@ function adTextCard(box, l, a) {
       <label class="f"><span>عنوان (دیوار حداکثر ۵۰ حرف می‌پذیرد)</span><div class="row" style="flex-wrap:nowrap"><input readonly id="adT"><button type="button" class="btn sm" id="cpT">${I.copy} کپی</button></div></label>
       <label class="f"><span>متن آگهی</span><textarea readonly id="adB" rows="12" style="min-height:220px"></textarea></label>
       <div class="row"><button type="button" class="btn primary" id="cpB" style="flex:1">${I.copy} کپی متن</button><button type="button" class="btn" id="dlI">ذخیره عکس‌ها</button></div>
-      <a class="btn" href="https://divar.ir/new" target="_blank" rel="noopener">باز کردن «ثبت آگهی» در دیوار</a>
+      <button type="button" class="btn primary" id="cpGo">${I.copy} کپی متن و باز کردن دیوار</button>
+      <a class="btn" href="https://divar.ir/new" target="_blank" rel="noopener">فقط باز کردن «ثبت آگهی» در دیوار</a>
       <p class="small muted" style="margin:0">در دیوار: دسته‌بندی را انتخاب کنید، عکس‌ها را از گالری بگذارید و عنوان و متن را paste کنید. لینک و شماره تلفن را داخل متن ننویسید؛ دیوار قبول نمی‌کند.</p>
     </div></details>`;
   let cur = 0;
@@ -858,6 +859,10 @@ function adTextCard(box, l, a) {
   $('#cpT').addEventListener('click', () => copyText(ads[cur].title));
   $('#cpB').addEventListener('click', () => copyText(ads[cur].body));
   $('#dlI').addEventListener('click', () => savePhotos(l));
+  $('#cpGo').addEventListener('click', () => {   // هر دو کار در همان لمس انجام شود تا مرورگر جلویش را نگیرد
+    navigator.clipboard?.writeText(ads[cur].body).then(() => toast('متن کپی شد؛ در دیوار paste کنید', 3500), () => copyText(ads[cur].body));
+    window.open('https://divar.ir/new', '_blank', 'noopener');
+  });
   show(0);
   if (open) setTimeout(() => $('#adbox')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 300);
 }
@@ -915,7 +920,7 @@ async function viewDesign(id) {
 /* =====================================================================
    ورود مشاوران و مدیر
    ===================================================================== */
-const afterLogin = async () => { S.me = await DB.me(); invalidate(); S.panel = null; go('panel'); };
+const afterLogin = async () => { S.me = await DB.me(); invalidate(); S.panel = null; go('panel'); if (isAdmin() && wcfg().on) watchStart(); };
 
 function viewLogin() {
   if (DEMO) return viewDemoLogin();
@@ -998,7 +1003,7 @@ function viewPending() {
     <div class="row" style="justify-content:center"><button class="btn" onclick="location.reload()">بررسی دوباره</button><button class="btn danger" id="out">خروج</button></div></div>`;
   $('#out').addEventListener('click', logout);
 }
-async function logout() { await DB.signOut(); S.me = null; invalidate(); go('sale'); }
+async function logout() { if (WATCH.on) { const keep = wcfg().on; watchStop(); wsave({ on: keep }); } await DB.signOut(); S.me = null; invalidate(); go('sale'); }
 
 /* =====================================================================
    پنل مشاور / ادمین
@@ -1174,14 +1179,94 @@ async function panelAgents(pt, all, leads) {
   }));
 }
 
+/* ---------- دیده‌بان دیوار: تا وقتی اپ روی این دستگاه باز است، جستجوهای آماده را مرتب بررسی می‌کند ---------- */
+const WATCH = { on: false, timer: null, busy: false, last: null, msg: '', added: 0, skipped: 0 };
+const wcfg = () => ({ every: 20, drafts: true, ...store.get('amlak-watch', {}) });
+const wsave = p => store.set('amlak-watch', { ...wcfg(), ...p });
+function watchStart() { if (!isAdmin() || !DB.divarList || WATCH.on) return; WATCH.on = true; WATCH.msg = 'در حال شروع…'; wsave({ on: true }); watchUI(); watchTick(); }
+function watchStop() { WATCH.on = false; clearTimeout(WATCH.timer); wsave({ on: false }); WATCH.msg = 'خاموش'; watchUI(); }
+async function watchTick() {
+  if (!WATCH.on) return;
+  if (!WATCH.busy) {
+    WATCH.busy = true;
+    try { await watchOnce(); } catch (e) { WATCH.msg = '⚠️ ' + e.message; }
+    finally { WATCH.busy = false; WATCH.last = new Date(); watchUI(); }
+  }
+  WATCH.timer = setTimeout(watchTick, Math.max(5, +wcfg().every || 20) * 1000);
+}
+function beep() { try { const c = new (window.AudioContext || window.webkitAudioContext)(), o = c.createOscillator(), g = c.createGain(); o.frequency.value = 880; g.gain.value = .08; o.connect(g); g.connect(c.destination); o.start(); setTimeout(() => { o.stop(); c.close(); }, 220); } catch { } }
+function notify(title, body) {
+  beep(); toast('🔔 ' + title, 4000);
+  try { if (window.Notification?.permission === 'granted') new Notification(title, { body, icon: 'icons/icon-192.png' }); } catch { }
+}
+async function watchOnce() {
+  const { items, searches } = await DB.divarList();
+  if (!searches.length) throw new Error('اول یک «جستجوی آماده» دیوار ذخیره کنید (پایین همین صفحه)');
+  const seenAll = store.get('amlak-watch-seen', {}), known = new Set(items.map(x => Divar.tokenOf(x.url)));
+  let fresh = 0, blocked = 0, baseline = false;
+  for (const sr of searches) {
+    let tokens;
+    try { tokens = await Divar.searchTokens(sr.url); } catch (e) { blocked++; continue; }
+    const seen = seenAll[sr.url];
+    if (!seen) { seenAll[sr.url] = tokens.slice(0, 600); baseline = true; WATCH.msg =`شروع شد؛ ${fa(tokens.length)} آگهی فعلی نادیده گرفته شد و از این به بعد آگهی‌های تازه اضافه می‌شود`; continue; }
+    const news = tokens.filter(t => !seen.includes(t) && !known.has(t)).slice(0, 6);
+    for (const t of news) {
+      seen.unshift(t); known.add(t);
+      const url = 'https://divar.ir/v/' + t;
+      let d = {}; try { d = await Divar.fetchAd(url); } catch { }
+      if (d.title && Divar.isAgency(d)) { WATCH.skipped++; continue; }
+      const { _images = [], _labels, _token, ...parsed } = d;
+      if (parsed.description) parsed.description = parsed.description.slice(0, 1500);
+      let item;
+      try { item = await DB.divarAdd({ url, title: parsed.title || 'آگهی تازه دیوار', note: '🤖 خودکار — ' + sr.name, parsed, auto: true }); }
+      catch { continue; }   // تکراری (دستگاه دیگری زودتر اضافه کرده)
+      WATCH.added++; fresh++;
+      if (wcfg().drafts && parsed.title) {
+        try {
+          const l = await DB.saveListing({ deal: parsed.deal || 'sale', ptype: parsed.ptype || 'apartment', misc_kind: parsed.misc_kind || null, status: 'hidden', title: parsed.title.slice(0, 120),
+            city: parsed.city || '', district: parsed.district || '', price: parsed.deal === 'rent' ? null : parsed.price ?? null, deposit: parsed.deal === 'rent' ? parsed.deposit ?? null : null,
+            rent: parsed.deal === 'rent' ? parsed.rent ?? null : null, area: parsed.area ?? null, land_area: parsed.land_area ?? null, rooms: parsed.rooms ?? null, floor: parsed.floor ?? null,
+            floors: parsed.floors ?? null, year_built: parsed.year_built ?? null, features: parsed.features || [], description: parsed.description || '', images: _images.slice(0, 12), agent_id: S.me.id }, true);
+          await DB.savePrivate(l.id, { owner_name: '', owner_phone: '', exact_address: '', notes: 'ثبت خودکار از دیوار — قبل از انتشار با مالک تماس بگیرید', source_url: url });
+          await DB.divarUpdate(item.id, { listing_id: l.id });
+        } catch (e) { WATCH.msg = '⚠️ ساخت پیش‌نویس: ' + e.message; }
+      }
+      notify('آگهی تازه دیوار', parsed.title || url);
+    }
+    seenAll[sr.url] = seen.slice(0, 600);
+  }
+  store.set('amlak-watch-seen', seenAll);
+  if (blocked === searches.length) throw new Error('دیوار اجازه جستجوی مستقیم از داخل اپ را نداد');
+  if (!baseline) WATCH.msg = fresh ? `${fa(fresh)} آگهی تازه اضافه شد` : 'آگهی تازه‌ای نبود';
+  if (fresh) { S.panel = null; if (location.hash.startsWith('#panel/divar')) viewPanel('divar'); }
+}
+function watchUI() {
+  document.title = (WATCH.on ? '🤖 ' : '') + (CFG.name || 'املاک');
+  const st = $('#wst'); if (!st) return;
+  st.innerHTML = WATCH.on ? `<span class="tag ok">روشن</span> ${WATCH.busy ? 'در حال بررسی…' : esc(WATCH.msg)}${WATCH.last ? ` · آخرین بررسی ${WATCH.last.toLocaleTimeString('fa-IR')}` : ''}<br>
+    این دستگاه تا حالا: ${fa(WATCH.added)} آگهی اضافه کرد · ${fa(WATCH.skipped)} آگهی املاکی رد شد` : '<span class="tag">خاموش</span>';
+  const on = $('#won'); if (on) on.checked = WATCH.on;
+}
+
 // «فایل‌های دیوار»: لینک آگهی‌هایی که کارمندان در دیوار پیدا می‌کنند؛ همه مشاوران و مدیرها می‌بینند
 async function panelDivar(pt) {
   const { items, searches } = await DB.divarList();
+  const lists = isAdmin() ? await loadListings(true) : [], agentsAll = isAdmin() ? await loadAgents() : [];
+  const lOf = id => lists.find(l => l.id === id);
   const F = S.dvF || (S.dvF = { st: 'open' });
   const sel = 'style="width:auto;min-height:32px;padding:3px 8px;font-size:13px"';
   const summary = p => [p?.deal && (p.deal === 'misc' ? MISC_KINDS[p.misc_kind] : DEAL_NAME[p.deal]), p?.area && fa(p.area) + ' متر', p?.land_area && !p?.area && 'زمین ' + fa(p.land_area) + ' متر', p?.rooms != null && fa(p.rooms) + ' خواب',
     p?.price && money(p.price), p?.deposit && 'رهن ' + money(p.deposit, false), p?.rent && 'اجاره ' + money(p.rent, false), p?.district].filter(Boolean).join(' · ');
+  const c = wcfg();
   pt.innerHTML = `
+    ${isAdmin() ? `<div class="card stack" style="margin-bottom:12px;border-color:var(--accent)">
+      <div class="row"><h3 style="flex:1">🤖 دیده‌بان دیوار</h3><label class="check"><input type="checkbox" id="won"> روشن</label></div>
+      <div class="grid2"><label class="f"><span>هر چند ثانیه یک بار</span><select id="wev">${opts([5, 10, 20, 30, 60].map(x => [x, fa(x) + ' ثانیه']), c.every)}</select></label>
+        <label class="check" style="align-self:end;min-height:42px"><input type="checkbox" id="wdr"${c.drafts ? ' checked' : ''}> ثبت خودکار پیش‌نویس به نام من</label></div>
+      <div class="row"><button type="button" class="btn sm" id="wnt">🔔 فعال کردن اعلان روی این دستگاه</button></div>
+      <div class="small" id="wst"></div>
+      <p class="small muted" style="margin:0">تا وقتی اپ روی همین دستگاه باز است (مثلا کامپیوتر دفتر)، «جستجوهای آماده» پایین صفحه مرتب بررسی می‌شوند. هر آگهی تازه این‌جا اضافه می‌شود و اعلان می‌آید. آگهی‌های املاکی رد می‌شوند. پیش‌نویس‌ها <b>مخفی</b> می‌مانند تا شما مشاور را انتخاب کنید و «انتشار» را بزنید.</p>
+    </div>` : ''}
     <form class="card stack" id="dvf"><h3>افزودن آگهی از دیوار</h3>
       <p class="small muted" style="margin:0">آگهی شخصی خوبی در دیوار دیدید؟ لینکش را اینجا بگذارید تا بقیه هم ببینند و کسی با مالک تماس بگیرد.</p>
       <input name="url" required placeholder="لینک آگهی در دیوار" dir="ltr" inputmode="url">
@@ -1202,16 +1287,39 @@ async function panelDivar(pt) {
       ${summary(x.parsed) ? `<div class="small">${esc(summary(x.parsed))}</div>` : ''}
       ${x.note ? `<div class="small muted">📝 ${esc(x.note)}</div>` : ''}
       <div class="small muted">${esc(DB.nameOf(x.by))} · ${ago(x.at)}${x.listing_id ? ` · <a href="#l/${x.listing_id}">آگهی کد ${fa(x.listing_id)}</a>` : ''}</div>
+      ${isAdmin() && x.listing_id && lOf(x.listing_id) ? (L => `<div class="row" style="margin-top:6px;padding:8px;border-radius:12px;background:var(--sunk)">
+        <span class="small" style="flex:1">${L.status === 'hidden' ? '📝 پیش‌نویس (مخفی)' : '✅ منتشر شده'} · مشاور:</span>
+        <select data-asg="${L.id}" ${sel}>${opts([...agentsAll.map(a => [a.id, a.full_name]), ...(agentsAll.some(a => a.id === L.agent_id) ? [] : [[L.agent_id, '—']])], L.agent_id)}</select>
+        ${L.status === 'hidden' ? `<button class="btn sm primary" data-pub="${L.id}" data-dv="${x.id}">انتشار</button>` : ''}<a class="btn sm" href="#edit/${L.id}">ویرایش</a></div>`)(lOf(x.listing_id)) : ''}
       <div class="row" style="margin-top:6px"><a class="btn sm" href="${esc(x.url)}" target="_blank" rel="noopener">باز کردن در دیوار</a>
-        ${x.status !== 'listed' ? `<button class="btn sm primary" data-mk="${x.id}">ثبت به‌عنوان آگهی</button>` : ''}
+        ${x.status !== 'listed' && !x.listing_id ? `<button class="btn sm primary" data-mk="${x.id}">ثبت به‌عنوان آگهی</button>` : ''}
         <select data-dst="${x.id}" ${sel}>${opts(Object.entries(DIVAR_ST).map(([k, v]) => [k, v[0]]), x.status)}</select>
         ${isAdmin() || x.by === S.me.id ? `<button class="btn sm ghost" data-dd="${x.id}" style="color:var(--bad)">حذف</button>` : ''}</div></div></div>`).join('')
       : '<div class="empty">موردی نیست.</div>';
     $$('[data-mk]').forEach(b => b.addEventListener('click', () => { const x = items.find(y => y.id === b.dataset.mk); S.prefill = { ...(x.parsed || {}), title: x.parsed?.title || x.title, source_url: x.url, _divarId: x.id }; go('edit/new'); }));
     $$('[data-dst]').forEach(s => s.addEventListener('change', async () => { try { await DB.divarUpdate(s.dataset.dst, { status: s.value }); items.find(y => y.id === s.dataset.dst).status = s.value; toast('ذخیره شد', 1200); draw(); } catch (e) { toast(e.message); } }));
+    $$('[data-asg]').forEach(s => s.addEventListener('change', async () => {
+      try { await DB.saveListing({ id: +s.dataset.asg, agent_id: s.value }, true); S.listings = null; toast('به مشاور ارجاع شد', 1500); } catch (e) { toast(e.message); }
+    }));
+    $$('[data-pub]').forEach(b => b.addEventListener('click', async () => {
+      const L = lOf(+b.dataset.pub); if (!L.district && !confirm('محله این آگهی خالی است. همین‌طور منتشر شود؟')) return;
+      b.disabled = true;
+      try { await DB.saveListing({ id: L.id, status: 'active' }, true); await DB.divarUpdate(b.dataset.dv, { status: 'listed' }); S.listings = null; toast('منتشر شد ✓'); viewPanel('divar', true); }
+      catch (e) { toast(e.message); b.disabled = false; }
+    }));
     $$('[data-dd]').forEach(b => b.addEventListener('click', async () => { if (!confirm('از فهرست حذف شود؟')) return; try { await DB.divarDelete(b.dataset.dd); viewPanel('divar', true); } catch (e) { toast(e.message); } }));
   };
   $('#dvs').addEventListener('change', e => { F.st = e.target.value; draw(); });
+  if (isAdmin()) {
+    watchUI();
+    $('#won').addEventListener('change', e => e.target.checked ? watchStart() : watchStop());
+    $('#wev').addEventListener('change', e => wsave({ every: +e.target.value }));
+    $('#wdr').addEventListener('change', e => wsave({ drafts: e.target.checked }));
+    $('#wnt').addEventListener('click', async () => {
+      if (!window.Notification) return toast('این مرورگر اعلان ندارد؛ صدا و پیام داخل اپ کار می‌کند');
+      const r = await Notification.requestPermission(); toast(r === 'granted' ? 'اعلان فعال شد' : 'اجازه اعلان داده نشد');
+    });
+  }
   $('#dvf').addEventListener('submit', async e => {
     e.preventDefault(); const f = e.target, b = $('button', f), url = f.url.value.trim(), text = f.text.value.trim();
     if (!Divar.tokenOf(url)) return toast('لینک آگهی دیوار درست نیست');
@@ -1467,5 +1575,6 @@ async function viewDesignEdit(arg) {
   catch (e) { view().innerHTML = `<div class="empty">${I.empty}<p>${esc(e.message)}</p><button class="btn" onclick="location.reload()">تلاش دوباره</button></div>`; return; }
   addEventListener('hashchange', route);
   route();
+  if (isAdmin() && wcfg().on) watchStart();   // دیده‌بان روی این دستگاه روشن مانده بود
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => { });
 })();
