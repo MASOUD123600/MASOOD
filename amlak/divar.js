@@ -89,35 +89,78 @@
   // توکن آگهی از لینک دیوار: https://divar.ir/v/عنوان/gZ1aBcDe
   W.tokenOf = url => { const m = String(url || '').match(/divar\.ir\/v\/(?:[^/?#]*\/)?([A-Za-z0-9_-]{6,12})(?:[/?#]|$)/); return m ? m[1] : null; };
 
-  // تلاش برای خواندن یک آگهی از دیوار (اگر دیوار اجازه بدهد). اگر نشد، کاربر متن را کپی می‌کند.
+  /* ---------- دسترسی به دیوار ----------
+     مرورگر به سایت ما اجازه نمی‌دهد مستقیم از دیوار بخواند. اگر «کمک‌یار دیوار» (اسکریپت Tampermonkey) روی این مرورگر نصب باشد،
+     درخواست‌ها از طریق آن و با اینترنت همین دستگاه انجام می‌شود؛ وگرنه مستقیم امتحان می‌کنیم. */
+  const hasDoc = typeof document !== 'undefined';
+  W.bridgeOn = () => hasDoc && document.documentElement.dataset.amlakBridge === '1';
+  let rq = 0; const pend = {};
+  if (hasDoc) window.addEventListener('message', e => {
+    if (e.source !== window || !e.data || !e.data.amlakRes) return;
+    const p = pend[e.data.amlakRes]; if (!p) return; delete pend[e.data.amlakRes];
+    e.data.error ? p.rej(new Error(e.data.error)) : p.res({ ok: e.data.status >= 200 && e.data.status < 300, status: e.data.status, text: e.data.text || '' });
+  });
+  async function getText(url, headers = {}) {
+    if (W.bridgeOn()) return new Promise((res, rej) => {
+      const id = ++rq; pend[id] = { res, rej };
+      window.postMessage({ amlakReq: id, url, headers }, location.origin);
+      setTimeout(() => { if (pend[id]) { delete pend[id]; rej(new Error('timeout')); } }, 25000);
+    });
+    const r = await fetch(url, { headers }); return { ok: r.ok, status: r.status, text: await r.text() };
+  }
+  W.getText = getText;
+
+  // همه «عنوان/مقدار»ها، متن‌ها، عکس‌ها و برچسب‌ها را از هر ساختار JSON دیوار جمع می‌کند (ساختار دیوار گاهی عوض می‌شود)
+  function extract(j, acc) {
+    (function walk(o, depth) {
+      if (!o || typeof o !== 'object' || depth > 18) return;
+      if (Array.isArray(o)) return o.forEach(x => walk(x, depth + 1));
+      if (o.widget_type === 'LEGEND_TITLE_ROW' && o.data) { acc.title = acc.title || o.data.title || ''; acc.subtitle = acc.subtitle || o.data.subtitle || ''; }
+      if (typeof o.title === 'string' && (typeof o.value === 'string' || typeof o.value === 'number')) acc.pairs.push([o.title, String(o.value)]);
+      else if (typeof o.title === 'string' && o.title.length < 30) acc.labels.push(o.title + (o.available === false || o.disabled === true ? ' ندارد' : ''));
+      if (typeof o.text === 'string' && o.text.length > 25) acc.texts.push(o.text);
+      if (typeof o.description === 'string' && o.description.length > 25) acc.texts.push(o.description);
+      for (const k in o) { const v = o[k]; if (typeof v === 'string' && /divarcdn\.com\/.+\.(jpe?g|webp|png)/i.test(v)) acc.images.push(v); else walk(v, depth + 1); }
+    })(j, 0);
+    if (!acc.title && j && j.seo && j.seo.title) acc.title = j.seo.title;
+    return acc;
+  }
+  const newAcc = () => ({ title: '', subtitle: '', pairs: [], texts: [], images: [], labels: [] });
+  const decodeHtml = t => t.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n));
+  // پشتیبان: خواندن از خود صفحه آگهی در دیوار (JSON داخل صفحه، و اگر نبود متن قابل دیدن صفحه)
+  function fromHtml(html, acc) {
+    for (const m of html.matchAll(/<script[^>]*(?:application\/ld\+json|__NEXT_DATA__|application\/json)[^>]*>([\s\S]*?)<\/script>/g)) { try { extract(JSON.parse(m[1]), acc); } catch { } }
+    for (const m of html.matchAll(/window\.__[A-Z_]+__\s*=\s*(\{[\s\S]*?\});?\s*<\/script>/g)) { try { extract(JSON.parse(m[1]), acc); } catch { } }
+    const og = (html.match(/<meta[^>]+property="og:title"[^>]+content="([^"]+)"/) || html.match(/<title>([^<]+)<\/title>/) || [])[1];
+    if (!acc.title && og) acc.title = decodeHtml(og).replace(/\s*[|\-–]\s*دیوار.*$/, '').trim();
+    for (const m of html.matchAll(/https:\/\/[a-z0-9.]*divarcdn\.com\/[^"'\s)]+?\.(?:jpe?g|webp|png)/gi)) acc.images.push(m[0]);
+    if (!acc.pairs.length && !acc.texts.length) {
+      const visible = decodeHtml(html.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/g, ' ').replace(/<br\s*\/?>|<\/(p|div|li|h\d|tr|span)>/gi, '\n').replace(/<[^>]+>/g, ' ')).replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim();
+      if (visible.length > 40) acc.texts.push(visible.slice(0, 5000));
+    }
+    return acc;
+  }
+
+  // خواندن یک آگهی از دیوار. اگر نشد، کاربر متن را کپی می‌کند.
   W.fetchAd = async function (url) {
     const token = W.tokenOf(url);
     if (!token) throw new Error('لینک دیوار درست نیست؛ لینک کامل آگهی را از دکمه «اشتراک‌گذاری» دیوار کپی کنید');
-    let j;
+    const acc = newAcc(); let got = false, gone = false;
     try {
-      const r = await fetch('https://api.divar.ir/v8/posts-v2/web/' + token, { headers: { Accept: 'application/json' } });
-      if (!r.ok) throw new Error(r.status === 404 ? 'این آگهی در دیوار پیدا نشد (شاید حذف شده)' : 'دیوار جواب نداد');
-      j = await r.json();
-    } catch (e) { const x = new Error(e.message && /پیدا نشد/.test(e.message) ? e.message : 'دیوار اجازه خواندن مستقیم نداد'); x.blocked = true; throw x; }
-    // ساختار پاسخ دیوار گاهی عوض می‌شود؛ پس همه «عنوان/مقدار»ها و متن‌ها را عمومی جمع می‌کنیم
-    const pairs = [], texts = [], images = [], labels = []; let title = '', subtitle = '';
-    (function walk(o, depth) {
-      if (!o || typeof o !== 'object' || depth > 14) return;
-      if (Array.isArray(o)) return o.forEach(x => walk(x, depth + 1));
-      if (o.widget_type === 'LEGEND_TITLE_ROW' && o.data) { title = title || o.data.title || ''; subtitle = subtitle || o.data.subtitle || ''; }
-      if (typeof o.title === 'string' && (typeof o.value === 'string' || typeof o.value === 'number')) pairs.push([o.title, String(o.value)]);
-      else if (typeof o.title === 'string' && o.title.length < 30) labels.push(o.title + (o.available === false || o.disabled === true ? ' ندارد' : ''));   // امکانات بدون مقدار
-      if (typeof o.text === 'string' && o.text.length > 25) texts.push(o.text);
-      if (typeof o.url === 'string' && /divarcdn\.com/.test(o.url) && /\.(jpe?g|webp|png)/.test(o.url)) images.push(o.url);
-      for (const k in o) walk(o[k], depth + 1);
-    })(j, 0);
-    if (!title && j.seo?.title) title = j.seo.title;
-    if (!title && !pairs.length && !texts.length) { const x = new Error('اطلاعاتی از دیوار دریافت نشد'); x.blocked = true; throw x; }
+      const r = await getText('https://api.divar.ir/v8/posts-v2/web/' + token, { Accept: 'application/json' });
+      if (r.status === 404) gone = true; else if (r.ok) { extract(JSON.parse(r.text), acc); got = !!(acc.title || acc.pairs.length || acc.texts.length); }
+    } catch { }
+    if (!got && !gone) {
+      try { const r = await getText('https://divar.ir/v/' + token, { Accept: 'text/html' }); if (r.status === 404) gone = true; else if (r.ok) { fromHtml(r.text, acc); got = !!(acc.title || acc.pairs.length || acc.texts.length); } } catch { }
+    }
+    if (gone) throw new Error('این آگهی در دیوار پیدا نشد (شاید حذف شده)');
+    if (!got) { const x = new Error(W.bridgeOn() ? 'دیوار جواب نداد (اگر VPN روشن است خاموشش کنید)' : 'دیوار اجازه خواندن مستقیم نداد'); x.blocked = true; throw x; }
+    const { title, subtitle, pairs, texts, images, labels } = acc;
     const raw = [title, subtitle, ...pairs.map(([k, v]) => `${k}: ${v}`), ...labels.filter(x => x !== title), ...texts].join('\n');
     const out = W.parseAdText(raw, pairs);
     if (title) out.title = title;
-    out.description = texts.join('\n\n').slice(0, 3800) || out.description;
-    out._images = [...new Set(images)];
+    out.description = (texts.filter(t => t.length < 4000).join('\n\n') || out.description || '').slice(0, 3800);
+    out._images = [...new Set(images)].filter(u => !/(logo|icon|avatar|placeholder)/i.test(u)).slice(0, 20);
     out._labels = [subtitle, ...labels].filter(Boolean);
     out._token = token;
     return out;
@@ -154,11 +197,11 @@
     let u; try { u = new URL(searchUrl); } catch { throw new Error('لینک جستجوی دیوار درست نیست'); }
     const path = u.pathname.replace(/^\/s\//, '');
     const tries = [
-      () => fetch('https://api.divar.ir/v8/web-search/' + path + u.search, { headers: { Accept: 'application/json' } }).then(r => r.ok ? r.json() : Promise.reject(r.status)),
-      () => fetch(searchUrl, { headers: { Accept: 'text/html' } }).then(r => r.ok ? r.text() : Promise.reject(r.status))
+      () => getText('https://api.divar.ir/v8/web-search/' + path + u.search, { Accept: 'application/json' }).then(r => r.ok ? JSON.parse(r.text) : Promise.reject(r.status)),
+      () => getText(searchUrl, { Accept: 'text/html' }).then(r => r.ok ? r.text : Promise.reject(r.status))
     ];
     for (const t of tries) { try { const tok = collectTokens(await t()); if (tok.length) return tok; } catch { } }
-    const e = new Error('دیوار اجازه جستجوی مستقیم نداد'); e.blocked = true; throw e;
+    const e = new Error(W.bridgeOn() ? 'دیوار جواب نداد (اگر VPN روشن است خاموشش کنید)' : 'دیوار اجازه جستجوی مستقیم نداد؛ «کمک‌یار دیوار» را روی این مرورگر نصب کنید'); e.blocked = true; throw e;
   };
 
   /* ---------- متن آماده برای دیوار ---------- */

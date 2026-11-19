@@ -613,6 +613,7 @@ async function route() {
       case 'panel': isStaff() ? await viewPanel(arg) : S.me ? viewPending() : go('login'); break;
       case 'edit': isStaff() ? await viewEdit(arg) : go('login'); break;
       case 'dedit': isAdmin() ? await viewDesignEdit(arg) : go('designs'); break;
+      case 'helper': viewHelper(); break;
       default: go('sale');
     }
   } catch (e) {
@@ -865,6 +866,35 @@ function adTextCard(box, l, a) {
   });
   show(0);
   if (open) setTimeout(() => $('#adbox')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 300);
+}
+
+// راهنمای نصب «کمک‌یار دیوار»
+function viewHelper() {
+  const url = new URL('divar-helper.user.js', location.href.split('#')[0].split('?')[0]).href;
+  const on = window.Divar?.bridgeOn();
+  view().innerHTML = `<button class="back" onclick="history.back()">${I.back} بازگشت</button>
+  <div class="stack" style="max-width:640px">
+    <h2>نصب «کمک‌یار دیوار»</h2>
+    <div class="card" style="border-color:var(--${on ? 'ok' : 'warn'})">${on ? '✅ روی همین مرورگر نصب است و کار می‌کند.' : 'روی این مرورگر هنوز نصب نیست.'}</div>
+    <p class="muted" style="margin:0">مرورگرها به سایت‌ها اجازه نمی‌دهند مستقیم از دیوار اطلاعات بخوانند. این کمک‌یار کوچک فقط صفحه‌های دیوار را با اینترنت همین دستگاه برای اپ می‌خواند. رمزها و توکن از اپ بیرون نمی‌روند. یک بار نصب کافی است.</p>
+    <div class="card stack"><h3>💻 کامپیوتر (Chrome یا Edge) — پیشنهادی برای دیده‌بان</h3>
+      <ol style="padding-inline-start:20px;line-height:2;margin:0">
+        <li>افزونه رایگان <b>Tampermonkey</b> را نصب کنید: <a href="https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo" target="_blank" rel="noopener">صفحه Chrome</a> یا <a href="https://microsoftedge.microsoft.com/addons/detail/tampermonkey/iikmkjjpdbmhehbfpikbjpkmgmhbalpf" target="_blank" rel="noopener">صفحه Edge</a></li>
+        <li>در Chrome: به <span dir="ltr">chrome://extensions</span> بروید، روی Tampermonkey «Details» را بزنید و <b>Allow User Scripts</b> را روشن کنید. (در Edge: Developer mode را در صفحه افزونه‌ها روشن کنید.)</li>
+        <li>این دکمه را بزنید و در صفحه‌ای که Tampermonkey باز می‌کند <b>Install</b> را بزنید:</li>
+      </ol>
+      <a class="btn primary" href="${esc(url)}" target="_blank" rel="noopener">نصب کمک‌یار دیوار</a>
+      <div class="small muted">۴. اپ را یک بار تازه کنید (Refresh). بالای «دیده‌بان دیوار» باید بنویسد «✅ کمک‌یار دیوار نصب است».</div></div>
+    <div class="card stack"><h3>📱 گوشی اندروید</h3>
+      <ol style="padding-inline-start:20px;line-height:2;margin:0">
+        <li>مرورگر <b>Firefox</b> را از بازار یا Play نصب کنید.</li>
+        <li>در Firefox از منو ← Add-ons، افزونه <b>Tampermonkey</b> را اضافه کنید.</li>
+        <li>اپ املاک را در همان Firefox باز کنید و دکمه «نصب کمک‌یار دیوار» بالا را بزنید ← Install.</li>
+      </ol></div>
+    <div class="card stack"><h3>⚠️ دو نکته مهم</h3>
+      <div>• <b>VPN را خاموش کنید.</b> دیوار به اینترنت خارج از ایران جواب نمی‌دهد.</div>
+      <div>• در آیفون این کمک‌یار کار نمی‌کند؛ آنجا متن آگهی را از دیوار کپی کنید و در کادر «پر کردن خودکار» بچسبانید.</div></div>
+  </div>`;
 }
 
 async function viewAgent(id) {
@@ -1264,6 +1294,7 @@ async function panelDivar(pt) {
       <div class="grid2"><label class="f"><span>هر چند ثانیه یک بار</span><select id="wev">${opts([5, 10, 20, 30, 60].map(x => [x, fa(x) + ' ثانیه']), c.every)}</select></label>
         <label class="check" style="align-self:end;min-height:42px"><input type="checkbox" id="wdr"${c.drafts ? ' checked' : ''}> ثبت خودکار پیش‌نویس به نام من</label></div>
       <div class="row"><button type="button" class="btn sm" id="wnt">🔔 فعال کردن اعلان روی این دستگاه</button></div>
+      ${window.Divar?.bridgeOn() ? '<div class="small" style="color:var(--ok)">✅ کمک‌یار دیوار روی این مرورگر نصب است</div>' : '<div class="small" style="color:var(--warn)">⚠️ برای خواندن از دیوار، «کمک‌یار دیوار» روی این مرورگر نصب نیست — <a href="#helper">راهنمای نصب (یک بار، ۲ دقیقه)</a></div>'}
       <div class="small" id="wst"></div>
       <p class="small muted" style="margin:0">تا وقتی اپ روی همین دستگاه باز است (مثلا کامپیوتر دفتر)، «جستجوهای آماده» پایین صفحه مرتب بررسی می‌شوند. هر آگهی تازه این‌جا اضافه می‌شود و اعلان می‌آید. آگهی‌های املاکی رد می‌شوند. پیش‌نویس‌ها <b>مخفی</b> می‌مانند تا شما مشاور را انتخاب کنید و «انتشار» را بزنید.</p>
     </div>` : ''}
@@ -1427,6 +1458,7 @@ async function viewEdit(arg) {
         <input id="impUrl" placeholder="لینک آگهی در دیوار" dir="ltr" inputmode="url">
         <textarea id="impText" rows="3" placeholder="اگر لینک کار نکرد: متن آگهی را در دیوار کپی کنید و اینجا بچسبانید"></textarea>
         <button type="button" class="btn" id="impGo">پر کردن فیلدها</button>
+        ${window.Divar?.bridgeOn() ? '<div class="small" style="color:var(--ok)">✅ کمک‌یار دیوار روی این مرورگر نصب است</div>' : '<div class="small" style="color:var(--warn)">⚠️ برای خواندن از دیوار، «کمک‌یار دیوار» روی این مرورگر نصب نیست — <a href="#helper">راهنمای نصب (یک بار، ۲ دقیقه)</a></div>'}
         <p class="small muted" style="margin:0">فقط آگهی مالکانی را وارد کنید که با آن‌ها هماهنگ کرده‌اید. بعد از پر شدن، همه فیلدها را یک بار بررسی کنید.</p>
       </div></details>
     <div class="card stack">
@@ -1491,7 +1523,7 @@ async function viewEdit(arg) {
     b.disabled = true; b.textContent = 'در حال خواندن…';
     let d = {}, fromLink = false;
     try {
-      if (url) { try { d = await Divar.fetchAd(url); fromLink = true; } catch (e) { if (!text) { toast(e.blocked ? 'دیوار اجازه خواندن مستقیم نداد؛ متن آگهی را کپی کنید و در کادر پایین بچسبانید' : e.message, 6000); $('#impText').focus(); return; } } }
+      if (url) { try { d = await Divar.fetchAd(url); fromLink = true; } catch (e) { if (!text) { toast(e.blocked ? (Divar.bridgeOn() ? e.message + '؛ فعلا متن آگهی را کپی کنید و در کادر پایین بچسبانید' : 'برای خواندن از لینک، «کمک‌یار دیوار» لازم است (راهنما زیر همین دکمه). فعلا متن آگهی را کپی کنید و در کادر پایین بچسبانید') : e.message, 7000); $('#impText').focus(); return; } } }
       if (text) d = { ...Divar.parseAdText(text), ...Object.fromEntries(Object.entries(d).filter(([, v]) => v != null && v !== '')) };
       if (url) d.source_url = url;
       const n = fill(d);
