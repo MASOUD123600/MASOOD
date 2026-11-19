@@ -817,7 +817,7 @@ async function viewListing(id) {
       : `<div class="grid2"><div><div class="muted small">رهن / ودیعه</div><div style="font-size:19px;font-weight:800">${money(l.deposit)}</div></div><div><div class="muted small">اجاره ماهانه</div><div style="font-size:19px;font-weight:800">${l.rent ? money(l.rent) : 'رهن کامل'}</div></div></div>`}</div>
     <div class="specs">${sp.map(([k, v]) => `<div class="spec"><small>${k}</small><b>${v}</b></div>`).join('')}</div>
     ${l.features?.length ? `<div><h3 style="margin-bottom:6px">امکانات</h3><div class="feat">${l.features.map(f => `<span>${esc(f)}</span>`).join('')}</div></div>` : ''}
-    ${l.description ? `<div><h3 style="margin-bottom:6px">توضیحات</h3><div class="desc">${esc(l.description)}</div></div>` : ''}
+    ${(dsc => dsc ? `<div><h3 style="margin-bottom:6px">توضیحات</h3><div class="desc">${esc(dsc)}</div></div>` : '')(window.Divar ? Divar.cleanDesc(l.description) : l.description)}
     <div id="priv"></div>
     <div id="adtxt"></div>
   </div>

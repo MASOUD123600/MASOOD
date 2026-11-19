@@ -30,7 +30,13 @@
 
   // توضیحات تمیز: بدون «انتشار آگهی / آخرین نردبان / زنگ خطرها»، بدون متن مخصوص گوگل، بدون پاراگراف تکراری
   W.cleanDesc = function (t) {
-    const lines = String(t || '').replace(/\*\*/g, '').split('\n').filter(x => !/^\s*(?:انتشار آگهی|آخرین نردبان|زنگ خطرهای|آگهی\s.{2,90}\sدر دیوار)/.test(x));
+    // هیچ تاریخی در توضیحات نماند (مشتری نباید ببیند آگهی کی ثبت یا به‌روز شده)؛ تاریخ‌ها فقط در اطلاعات محرمانه
+    const MON = 'فروردین|اردیبهشت|خرداد|تیر|مرداد|شهریور|مهر|آبان|آذر|دی|بهمن|اسفند';
+    const dated = new RegExp('(^|[^\\d])(\\d{1,2})\\s*(' + MON + ')\\s*(\\d{2,4})|\\d{4}\\s*[/\\-.]\\s*\\d{1,2}\\s*[/\\-.]\\s*\\d{1,2}|\\d{1,2}\\s*[/\\-.]\\s*\\d{1,2}\\s*[/\\-.]\\s*\\d{2,4}');
+    const lines = String(t || '').replace(/\*\*/g, '').split('\n').filter(x => { const n = norm(x);
+      return !/^\s*(?:انتشار آگهی|آخرین نردبان|زنگ خطرهای|آگهی\s.{2,90}\sدر دیوار)/.test(n)
+        && !/(?:آخرین\s*)?(?:به\s*روز\s*رسانی|بروز\s*رسانی|بروزرسانی|به\s*روزرسانی|ویرایش\s*شده|تاریخ\s*(?:ثبت|انتشار|درج|آگهی)|نردبان|منتشر\s*شده\s*در)/.test(n)
+        && !dated.test(n); });
     const paras = lines.join('\n').split(/\n\s*\n/).map(p => p.trim()).filter(Boolean), keep = [], seen = [];
     for (const p of paras) { const k = norm(p).replace(/\s+/g, ' '); if (seen.some(s => s.includes(k) || k.includes(s))) continue; seen.push(k); keep.push(p); }
     return keep.join('\n\n').trim();
@@ -300,7 +306,7 @@
     const code = l.id ? `کد آگهی: ${fa(l.id)}` : '';
     const clip = (t, n) => t.length <= n ? t : t.slice(0, n - 1).trim() + '…';
     const t1 = clip(`🏡 ${pt} ${area}${where}${star.length ? ' | ' + star.join(' | ') : ''}`.replace(/\s+/g, ' '), 50);
-    const desc = (l.description || '').trim();
+    const desc = W.cleanDesc(l.description || '');
     const b1 = [
       `${verb} ${pt} ${area}${where} 🌟`.replace(/\s+/g, ' '), '',
       specs.length && '✅ مشخصات:', ...specs, specs.length && '',
