@@ -118,7 +118,47 @@
     if (title) out.title = title;
     out.description = texts.join('\n\n').slice(0, 3800) || out.description;
     out._images = [...new Set(images)];
+    out._labels = [subtitle, ...labels].filter(Boolean);
+    out._token = token;
     return out;
+  };
+
+  // آیا آگهی‌دهنده بنگاه/مشاور املاک است؟ (برای جدا کردن آگهی‌های شخصی)
+  // برچسب‌های دیوار (نام آگهی‌دهنده / نشان کسب‌وکار) معتبرترند؛ در متن، جمله‌هایی مثل «مشاورین املاک تماس نگیرند» نشانه آگهی شخصی است
+  W.isAgency = d => {
+    const labels = (d?._labels || []).join('\n');
+    if (/مشاور(?:ین)? املاک|آژانس|املاک\s+\S+|کسب ?و ?کار|business/i.test(labels)) return true;
+    const text = norm([d?.title, d?.description].join('\n')).replace(/(مشاور(?:ین|ان)?(?:\s*محترم)?\s*املاک|بنگاه(?:ها|داران)?|املاکی(?:ها)?)[^.\n!]{0,30}(تماس\s*نگیر|نگیرند|نپذیر|معذور|ممنوع|نزنند)/g, '');
+    return /(?:^|\n)\s*(?:املاک|مشاور املاک|آژانس املاک)\s+[؀-ۿ]+|مشاور(?:ین)? املاک\s+[؀-ۿ]+\s*(?:$|\n)|کد\s*مشاور/.test(text);
+  };
+
+  // توکن‌های آگهی‌های یک صفحه جستجوی دیوار (مثلا https://divar.ir/s/tehran/buy-apartment?user_type=personal)
+  function collectTokens(x) {
+    const out = [];
+    const add = t => { if (t && /^[A-Za-z0-9_-]{8}$/.test(t) && !out.includes(t)) out.push(t); };
+    if (typeof x === 'string') {
+      for (const m of x.matchAll(/\/v\/[^"'\s<>]*?\/([A-Za-z0-9_-]{8})(?=["'?#\s<>/]|$)/g)) add(m[1]);
+      for (const m of x.matchAll(/"token"\s*:\s*"([A-Za-z0-9_-]{8})"/g)) add(m[1]);
+      return out;
+    }
+    (function walk(o, d) {
+      if (!o || typeof o !== 'object' || d > 16) return;
+      if (Array.isArray(o)) return o.forEach(v => walk(v, d + 1));
+      if (typeof o.token === 'string') add(o.token);
+      for (const k in o) { const v = o[k]; if (typeof v === 'string' && v.includes('/v/')) collectTokens(v).forEach(add); else walk(v, d + 1); }
+    })(x, 0);
+    return out;
+  }
+  W.collectTokens = collectTokens;
+  W.searchTokens = async function (searchUrl) {
+    let u; try { u = new URL(searchUrl); } catch { throw new Error('لینک جستجوی دیوار درست نیست'); }
+    const path = u.pathname.replace(/^\/s\//, '');
+    const tries = [
+      () => fetch('https://api.divar.ir/v8/web-search/' + path + u.search, { headers: { Accept: 'application/json' } }).then(r => r.ok ? r.json() : Promise.reject(r.status)),
+      () => fetch(searchUrl, { headers: { Accept: 'text/html' } }).then(r => r.ok ? r.text() : Promise.reject(r.status))
+    ];
+    for (const t of tries) { try { const tok = collectTokens(await t()); if (tok.length) return tok; } catch { } }
+    const e = new Error('دیوار اجازه جستجوی مستقیم نداد'); e.blocked = true; throw e;
   };
 
   /* ---------- متن آماده برای دیوار ---------- */
