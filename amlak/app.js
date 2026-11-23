@@ -5,6 +5,29 @@
 
 const CFG = window.AMLAK_CONFIG || {};
 const DEMO = !CFG.publicRepo || /[?&]demo\b/.test(location.search);
+/* چند بنگاه: هر بنگاه آدرس خودش را دارد (‎?a=نام‎) و داده‌هایش در دو مخزن جداگانه خودش است؛ هیچ بنگاهی به مخزن دیگری دسترسی ندارد.
+   «main» بنگاه خود مدیر اصلی سامانه است (آدرس بدون ?a=). فهرست بنگاه‌ها و اشتراک‌ها در registry.json (فقط مدیر اصلی می‌نویسد). */
+const TENANT = ((new URLSearchParams(location.search).get('a') || '').toLowerCase().replace(/[^a-z0-9-]/g, '')) || 'main';
+const K = n => TENANT === 'main' ? n : n + ':' + TENANT;
+const DEF_TIERS = { silver: { name: 'نقره‌ای', daily: 10, every: 60 }, gold: { name: 'طلایی', daily: 20, every: 20 }, platinum: { name: 'پلاتینی', daily: 40, every: 5 } };
+let REG = null, TEN = null;
+const REG_REPO = () => CFG.registryRepo || CFG.publicRepo;
+const dayKey = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Tehran' });
+async function loadRegistry() {
+  if (DEMO) return;
+  try { const r = await fetch(`https://raw.githubusercontent.com/${REG_REPO()}/main/registry.json?t=${Math.floor(Date.now() / 60000)}`, { cache: 'no-store' }); REG = r.ok ? await r.json() : null; } catch { REG = null; }
+  if (TENANT === 'main') return;
+  TEN = REG?.tenants?.[TENANT];
+  if (!TEN) throw new Error('این بنگاه پیدا نشد؛ آدرس را درست وارد کنید.');
+  Object.assign(CFG, { name: TEN.name, tagline: TEN.tagline || CFG.tagline, phone: TEN.phone || '' });
+  NEW_PUB = { repo: TEN.publicRepo, branch: 'main' }; OLD_PUB = null;
+}
+const tierOf = () => TENANT === 'main' || DEMO ? { name: 'نامحدود', daily: Infinity, every: 5 } : { ...(DEF_TIERS[TEN?.tier] || DEF_TIERS.silver), ...(REG?.tiers?.[TEN?.tier] || {}) };
+function subState() {
+  if (TENANT === 'main' || DEMO) return { ok: true, main: true, tier: tierOf() };
+  const exp = TEN?.expires ? new Date(TEN.expires) : null, days = exp ? Math.ceil((exp - Date.now()) / 864e5) : 0;
+  return { ok: !!TEN && TEN.active !== false && days > 0, days, exp, tier: tierOf(), suspended: TEN?.active === false };
+}
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
@@ -106,8 +129,8 @@ async function compress(file, max, q) {
    - اطلاعات کامل و محرمانه (مالک، آدرس دقیق، آگهی‌های مخفی، رمز کارمندان) در private.json یک مخزن خصوصی.
    - توکن فقط روی دستگاه کارمندان است؛ مشاوران آن را داخل «لینک دعوت» رمزگذاری‌شده با رمز خودشان می‌گیرند.
    ===================================================================== */
-const NEW_PUB = { repo: CFG.publicRepo, branch: CFG.publicBranch || 'main' };
-const OLD_PUB = CFG.oldPublic || null;   // محل قبلی داده‌های عمومی (برای انتقال خودکار)
+let NEW_PUB = { repo: CFG.publicRepo, branch: CFG.publicBranch || 'main' };
+let OLD_PUB = TENANT === 'main' ? CFG.oldPublic || null : null;   // محل قبلی داده‌های عمومی (برای انتقال خودکار)
 const te = new TextEncoder(), td = new TextDecoder();
 const b64u = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode(...u8.subarray(i, i + 0x8000)); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
 const ub64u = s => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
@@ -134,7 +157,7 @@ const normName = s => String(s || '').replace(/ي/g, 'ی').replace(/ك/g, 'ک').
 const uid8 = () => b64u(crypto.getRandomValues(new Uint8Array(9)));
 
 function GitHubDB() {
-  let dev = store.get('amlak-device', null);        // {repo, token, uid}
+  let dev = store.get(K('amlak-device'), null);        // {repo, token, uid}
   let P = null, PSHA = null, pubSha = null;          // private.json و sha آن
   const rawBase = t => `https://raw.githubusercontent.com/${t.repo}/${t.branch}/`;
   // محل نوشتن: اگر داده‌ها هنوز به مخزن جدید منتقل نشده‌اند، همان محل قبلی
@@ -176,6 +199,33 @@ function GitHubDB() {
   const admin = () => me()?.active && me()?.role === 'admin';
   const staff = () => me()?.active && ['admin', 'agent'].includes(me()?.role);
   const owns = l => l && (admin() || (staff() && l.agent_id === dev.uid));
+  // خزانه مدیر کل: توکن کل و توکن بنگاه‌ها، رمزگذاری‌شده با کلیدی که فقط با رمز ورود مدیر اصلی باز می‌شود
+  let VKEY = store.get(K('amlak-vkey'), null), VAULT = null;
+  const aesRaw = k => crypto.subtle.importKey('raw', ub64u(k), 'AES-GCM', false, ['encrypt', 'decrypt']);
+  async function vEnc(obj) { const iv = crypto.getRandomValues(new Uint8Array(12)); return b64u(iv) + '.' + b64u(new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await aesRaw(VKEY), te.encode(JSON.stringify(obj))))); }
+  async function vDec(x) { const [iv, c] = x.split('.').map(ub64u); return JSON.parse(td.decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, await aesRaw(VKEY), c))); }
+  async function unlockVault(pw) { VKEY = (await openInvite(pw, P.vault.wrap)).k; store.set(K('amlak-vkey'), VKEY); VAULT = await vDec(P.vault.data); }
+  async function loadVault() { VAULT = null; if (VKEY && P?.vault) { try { VAULT = await vDec(P.vault.data); } catch { } } return VAULT; }
+  async function saveVault(v) { const data = await vEnc(v); await mutate(d => { d.vault = { ...d.vault, data }; }, 'خزانه مدیر', false); VAULT = v; }
+  const guardOwner = () => { if (TENANT !== 'main' || !dev?.uid || dev.uid !== ownerId()) deny(); };
+  const ghM = (path, opt = {}) => { if (!VAULT?.master) throw new Error('اول «اتصال مدیریت کل» را انجام دهید'); return gh(path, opt, VAULT.master); };
+  const readM = async (repo, path) => { const f = await ghM(`/repos/${repo}/contents/${path}`); return { data: JSON.parse(fromB64(f.content || (await ghM(`/repos/${repo}/git/blobs/${f.sha}`)).content)), sha: f.sha }; };
+  async function regGet() { try { return await readM(REG_REPO(), 'registry.json'); } catch (e) { if (e.status === 404) return { data: { tiers: DEF_TIERS, tenants: {}, support: {} }, sha: null }; throw e; } }
+  async function regMutate(fn) {
+    for (let i = 0; ; i++) {
+      const r = await regGet(), out = await fn(r.data);
+      try { await ghM(`/repos/${REG_REPO()}/contents/registry.json`, { method: 'PUT', body: JSON.stringify({ message: 'بنگاه‌ها و اشتراک‌ها', content: toB64(JSON.stringify(r.data, null, 1)), ...(r.sha ? { sha: r.sha } : {}) }) }); REG = r.data; return out; }
+      catch (e) { if (![409, 422].includes(e.status) || i > 3) throw e; }
+    }
+  }
+  const tRead = async repo => (await readM(repo, 'private.json')).data;
+  async function tMutate(repo, fn, msg) {
+    for (let i = 0; ; i++) {
+      const r = await readM(repo, 'private.json'), out = await fn(r.data);
+      try { await ghM(`/repos/${repo}/contents/private.json`, { method: 'PUT', body: JSON.stringify({ message: msg, content: toB64(JSON.stringify(r.data)), sha: r.sha }) }); return out; }
+      catch (e) { if (![409, 422].includes(e.status) || i > 3) throw e; }
+    }
+  }
   const ownerId = () => (P?.staff.find(s => s.owner) || P?.staff.filter(s => s.role === 'admin').sort((a, b) => a.created_at.localeCompare(b.created_at))[0])?.id;
   const deny = () => { throw new Error('شما اجازه این کار را ندارید'); };
   function publicView(d) {
@@ -237,9 +287,72 @@ function GitHubDB() {
   return {
     caps: { leads: false, views: false, signup: false, github: true },
     deviceLinked: () => !!dev?.token,
-    async init() { if (dev?.token) { try { await loadPriv(); } catch (e) { if (e.status === 401) { dev = null; store.set('amlak-device', null); } else throw e; } } },
+    async init() { if (dev?.token) { try { await loadPriv(); } catch (e) { if (e.status === 401) { dev = null; store.set(K('amlak-device'), null); } else throw e; } } },
     async me() { const m = me(); return dev?.uid && m ? { ...clone(pubMe(m)), owner: m.id === ownerId() } : null; },
     isOwner: () => !!dev?.uid && dev.uid === ownerId(),
+    // ---------- مدیریت بنگاه‌ها (فقط مدیر اصلی سامانه، روی بنگاه main) ----------
+    owner: TENANT !== 'main' ? null : {
+      async load() { guardOwner(); await loadPriv(); await loadVault(); return !!VAULT?.master; },
+      ready: () => !!VAULT?.master,
+      async setMaster(token, pw) {
+        guardOwner(); token = token.trim();
+        if (!await checkPw(me(), pw)) throw new Error('رمز ورود شما اشتباه است');
+        const u = await gh('/user', {}, token).catch(() => { throw new Error('رمز مدیریت کل (توکن) نامعتبر است'); });
+        const r = await gh(`/repos/${REG_REPO()}`, {}, token).catch(() => { throw new Error('توکن به مخزن ' + REG_REPO().split('/')[1] + ' دسترسی ندارد؛ «All repositories» را انتخاب کنید'); });
+        if (!r.permissions?.push) throw new Error('توکن اجازه نوشتن ندارد (Contents: Read and write)');
+        VKEY = b64u(crypto.getRandomValues(new Uint8Array(32))); store.set(K('amlak-vkey'), VKEY);
+        const v = { master: token, login: u.login, tenants: { ...(VAULT?.tenants || {}) } }, wrap = await sealInvite(pw, { k: VKEY }), data = await vEnc(v);
+        await mutate(d => { d.vault = { wrap, data }; }, 'خزانه مدیر', false); VAULT = v;
+      },
+      async registry() { guardOwner(); return clone((await regGet()).data); },
+      async saveTiers(t) { guardOwner(); await regMutate(r => { r.tiers = t; }); },
+      async saveSupport(x) { guardOwner(); await regMutate(r => { r.support = x; }); },
+      async createTenant(o) {
+        guardOwner();
+        const slug = String(o.slug || '').toLowerCase().trim();
+        if (!/^[a-z][a-z0-9-]{2,24}$/.test(slug) || slug === 'main') throw new Error('نام انگلیسی بنگاه: فقط حروف کوچک انگلیسی، عدد و خط تیره، ۳ تا ۲۵ حرف (مثلا vatan)');
+        const reg = (await regGet()).data; if (reg.tenants?.[slug]) throw new Error('این نام قبلا برای بنگاه دیگری استفاده شده است');
+        const login = VAULT.login || (await ghM('/user')).login, priv = `${login}/amlak-${slug}`, pub = `${login}/amlak-${slug}-data`;
+        const mk = async (name, isPrivate) => { try { await ghM('/user/repos', { method: 'POST', body: JSON.stringify({ name, private: isPrivate, auto_init: true, description: 'اپ املاک — ' + o.name }) }); } catch (e) { if (e.status !== 422) throw e; } };
+        await mk(`amlak-${slug}`, true); await mk(`amlak-${slug}-data`, false);
+        for (let i = 0; i < 12; i++) { try { await ghM(`/repos/${pub}/git/ref/heads/main`); await ghM(`/repos/${priv}/git/ref/heads/main`); break; } catch { await new Promise(r => setTimeout(r, 1500)); } }
+        const exists = await ghM(`/repos/${priv}/contents/private.json`).then(() => true, e => { if (e.status === 404) return false; throw e; });
+        if (exists) throw new Error('مخزن این بنگاه از قبل اطلاعات دارد؛ نام دیگری انتخاب کنید');
+        const h = await hashPw(o.boss.pw), t = new Date().toISOString();
+        const boss = { id: uid8(), full_name: o.boss.name, phone: o.boss.phone || '', bio: 'مدیر بنگاه', role: 'admin', owner: true, active: true, ...h, created_at: t };
+        await ghM(`/repos/${priv}/contents/private.json`, { method: 'PUT', body: JSON.stringify({ message: 'راه‌اندازی بنگاه', content: toB64(JSON.stringify({ v: 1, seq: 100, staff: [boss], listings: [], priv: {}, designs: [], pub: { repo: pub, branch: 'main' } })) }) });
+        await ghM(`/repos/${pub}/contents/public.json`, { method: 'PUT', body: JSON.stringify({ message: 'راه‌اندازی بنگاه', content: toB64(JSON.stringify({ updated: t, listings: [], agents: [{ id: boss.id, full_name: boss.full_name, phone: boss.phone, bio: boss.bio }], designs: [] })) }) });
+        await regMutate(r => { r.tenants = r.tenants || {}; r.tenants[slug] = { name: o.name, tagline: 'خرید، فروش و اجاره', phone: o.phone || '', publicRepo: pub, privateRepo: priv, tier: o.tier || 'silver', active: !!o.activate, expires: o.activate ? new Date(Date.now() + 30 * 864e5).toISOString() : null, created: t, bossId: boss.id, history: o.activate ? [{ at: t, days: 30 }] : [] }; });
+        return { slug, priv, pub, bossId: boss.id };
+      },
+      async renew(slug, days = 30) { guardOwner(); await regMutate(r => { const x = r.tenants[slug], base = Math.max(Date.now(), x.expires ? new Date(x.expires).getTime() : 0); x.expires = new Date(base + days * 864e5).toISOString(); x.active = true; x.history = [{ at: new Date().toISOString(), days }, ...(x.history || [])].slice(0, 50); }); },
+      async setActive(slug, on) { guardOwner(); await regMutate(r => { r.tenants[slug].active = !!on; }); },
+      async setTier(slug, tier) { guardOwner(); await regMutate(r => { r.tenants[slug].tier = tier; }); },
+      async setInfo(slug, info) { guardOwner(); await regMutate(r => { Object.assign(r.tenants[slug], info); }); },
+      async stats(slug) {
+        guardOwner(); const x = REG.tenants[slug], d = await tRead(x.privateRepo), today = dayKey();
+        const st = d.staff || [], ls = d.listings || [], lastLog = (d.log || [])[0];
+        return { admins: st.filter(s => s.role === 'admin' && s.active).length, agents: st.filter(s => s.role === 'agent' && s.active).length, listings: ls.length, active: ls.filter(l => l.status === 'active').length,
+          divarToday: d.divarDaily?.day === today ? d.divarDaily.n : 0, lastLogin: lastLog?.at || null, lastWho: lastLog ? st.find(s => s.id === lastLog.uid)?.full_name : null };
+      },
+      hasToken: slug => !!VAULT?.tenants?.[slug],
+      async setTenantToken(slug, token) {
+        guardOwner(); token = token.trim(); const x = REG.tenants[slug];
+        for (const repo of [x.privateRepo, x.publicRepo]) { const r = await gh(`/repos/${repo}`, {}, token).catch(() => null); if (!r?.permissions?.push) throw new Error('این توکن به مخزن ' + repo.split('/')[1] + ' دسترسی نوشتن ندارد'); }
+        const leak = await gh(`/repos/${REG_REPO()}`, {}, token).catch(() => null);
+        if (leak?.permissions?.push) throw new Error('این توکن به مخزن‌های دیگر هم دسترسی دارد! فقط دو مخزن همین بنگاه را انتخاب کنید');
+        VAULT.tenants = { ...(VAULT.tenants || {}), [slug]: token }; await saveVault(VAULT);
+      },
+      // لینک دعوت مدیر بنگاه (رمز تازه برای او گذاشته می‌شود)
+      async bossInvite(slug, pw) {
+        guardOwner(); const x = REG.tenants[slug], tok = VAULT?.tenants?.[slug];
+        if (!tok) throw new Error('اول توکن این بنگاه را ثبت کنید');
+        const h = await hashPw(pw);
+        const id = await tMutate(x.privateRepo, d => { const b = d.staff.find(s => s.owner) || d.staff.find(s => s.role === 'admin'); Object.assign(b, h, { active: true }); return b.id; }, 'رمز تازه مدیر بنگاه');
+        const code = await sealInvite(pw, { repo: x.privateRepo, token: tok, uid: id, tenant: slug });
+        return location.origin + location.pathname + '?a=' + slug + '#join/' + code;
+      }
+    },
     async activity() { if (dev?.uid !== ownerId()) deny(); await loadPriv(); return { staff: P.staff.map(s => clone(pubMe(s))), log: clone(P.log || []) }; },
     // دستگاهی که با «رمز مخزن» وصل شده (مدیر) می‌تواند حساب مدیر تازه بسازد؛ دستگاهی که با لینک دعوت وصل شده نه
     deviceKind: () => dev?.kind || (P?.staff.find(s => s.id === dev?.uid)?.role === 'admin' ? 'admin' : 'agent'),
@@ -251,7 +364,9 @@ function GitHubDB() {
         if (!await checkPw(u, pw)) throw new Error('نام یا رمز اشتباه است');
         if (!u.active) throw new Error('حساب شما غیرفعال شده است');
         if (!dev.kind) dev.kind = u.role === 'admin' ? 'admin' : 'agent';
-        dev.uid = u.id; store.set('amlak-device', dev); await noteLogin(u.id, 'login'); return 'in';
+        dev.uid = u.id; store.set(K('amlak-device'), dev); await noteLogin(u.id, 'login');
+        if (TENANT === 'main' && u.id === ownerId() && P.vault) { try { await unlockVault(pw); } catch { } }
+        return 'in';
       }
       if (!allowCreate || this.deviceKind() !== 'admin') throw new Error('نام یا رمز اشتباه است');
       if (pw.length < 6) throw new Error('رمز باید حداقل ۶ حرف باشد');
@@ -260,17 +375,17 @@ function GitHubDB() {
         if (d.staff.some(s => normName(s.full_name) === normName(name))) throw new Error('این نام همین الان ثبت شد؛ دوباره وارد شوید');
         d.staff.push({ id, full_name: name.trim(), phone: '', bio: '', role: 'admin', active: true, ...h, created_at: new Date().toISOString() });
       }, 'مدیر جدید');
-      dev.uid = id; store.set('amlak-device', dev); await noteLogin(id, 'created'); return 'created';
+      dev.uid = id; store.set(K('amlak-device'), dev); await noteLogin(id, 'created'); return 'created';
     },
     nameExists: name => !!P?.staff.some(s => normName(s.full_name) === normName(name)),
     async signIn(id, pw) {
       await loadPriv(); const u = P.staff.find(s => s.id === id);
       if (!u || !await checkPw(u, pw)) throw new Error('رمز عبور اشتباه است');
       if (!u.active) throw new Error('حساب شما غیرفعال شده است');
-      dev.uid = id; store.set('amlak-device', dev);
+      dev.uid = id; store.set(K('amlak-device'), dev);
     },
-    async signOut() { if (dev) { dev.uid = null; store.set('amlak-device', dev); } },
-    forgetDevice() { dev = null; P = null; store.set('amlak-device', null); },
+    async signOut() { if (dev) { dev.uid = null; store.set(K('amlak-device'), dev); } },
+    forgetDevice() { dev = null; P = null; store.set(K('amlak-device'), null); },
     // راه‌اندازی اولیه توسط ادمین روی دستگاه خودش
     async setup(repo, token, admin) {
       repo = repo.trim().replace(/^https?:\/\/github\.com\//, '').replace(/\/+$/, ''); token = token.trim();
@@ -281,7 +396,7 @@ function GitHubDB() {
       if (!pr.permissions?.push) throw new Error('توکن روی مخزن خصوصی اجازه Contents: Read and write ندارد');
       dev = { repo, token, uid: null, kind: 'admin' };
       const f = await getJSON(repo, 'private.json');
-      if (f) { P = f.data; PSHA = f.sha; store.set('amlak-device', dev); return 'exists'; }
+      if (f) { P = f.data; PSHA = f.sha; store.set(K('amlak-device'), dev); return 'exists'; }
       await checkPubAccess(NEW_PUB, token);
       if (!admin) return 'new';
       const h = await hashPw(admin.pw);
@@ -290,20 +405,21 @@ function GitHubDB() {
       await ensureBranch(NEW_PUB);
       PSHA = (await putFile(repo, 'private.json', toB64(JSON.stringify(P)), null, 'راه‌اندازی سامانه املاک')).content.sha;
       await publish();
-      dev.uid = u.id; store.set('amlak-device', dev); return 'created';
+      dev.uid = u.id; store.set(K('amlak-device'), dev); return 'created';
     },
     async joinWithInvite(code, pw) {
       const inv = await openInvite(pw, code);
+      if ((inv.tenant || 'main') !== TENANT) throw new Error('این لینک مال بنگاه دیگری است؛ لینک را کامل و بدون تغییر باز کنید');
       dev = { repo: inv.repo, token: inv.token, uid: null, kind: 'agent' };
       try { await loadPriv(); } catch (e) { dev = null; throw e.status === 401 ? new Error('این لینک دعوت باطل شده است؛ از مدیر لینک تازه بگیرید') : e; }
-      store.set('amlak-device', dev);
+      store.set(K('amlak-device'), dev);
       await this.signIn(inv.uid, pw); await noteLogin(inv.uid, 'join');
     },
-    async makeInvite(id, pw) { if (!admin()) deny(); return sealInvite(pw, { repo: dev.repo, token: dev.token, uid: id }); },
+    async makeInvite(id, pw) { if (!admin()) deny(); return sealInvite(pw, { repo: dev.repo, token: dev.token, uid: id, tenant: TENANT }); },
     async setPassword(pw, id = dev.uid) {
       if (id !== dev.uid && !admin()) deny();
-      const h = await hashPw(pw);
-      await mutate(d => Object.assign(d.staff.find(s => s.id === id), h), 'تغییر رمز', false);
+      const h = await hashPw(pw), rewrap = id === ownerId() && id === dev.uid && VKEY && P?.vault ? await sealInvite(pw, { k: VKEY }) : null;
+      await mutate(d => { Object.assign(d.staff.find(s => s.id === id), h); if (rewrap && d.vault) d.vault.wrap = rewrap; }, 'تغییر رمز', false);
     },
     async addStaff(p) {
       if (!admin()) deny();
@@ -367,7 +483,7 @@ function GitHubDB() {
     async addLead() { }, async leads() { return []; }, async updateLead() { },
     // «فایل‌های دیوار»: لینک‌هایی که کارمندان پیدا می‌کنند، برای همه کارمندان
     nameOf(id) { const u = P?.staff.find(x => x.id === id); if (!u) return '—'; return u.role === 'admin' && id !== dev.uid && dev.uid !== ownerId() ? 'مدیر' : u.full_name; },
-    async divarList() { if (!staff()) deny(); await loadPriv(); return clone({ items: P.divar || [], searches: P.divarSearches || [], ignore: P.divarIgnore || [] }); },
+    async divarList() { if (!staff()) deny(); await loadPriv(); return clone({ items: P.divar || [], searches: P.divarSearches || [], ignore: P.divarIgnore || [], daily: P.divarDaily || null }); },
     // ثبت یک آگهی دیوار + پیش‌نویس مخفی آن، در یک ذخیره (تا گیت‌هاب از تعداد زیاد ذخیره‌ها جلوگیری نکند)
     async divarImport(x, l, pv) {
       if (!admin()) deny();
@@ -376,6 +492,7 @@ function GitHubDB() {
         if (tok && (d.divar.some(y => Divar.tokenOf(y.url) === tok) || (d.divarIgnore || []).includes(tok))) throw new Error('تکراری');
         const t = new Date().toISOString(); let lid = null;
         if (l) { lid = ++d.seq; d.listings.push({ ...l, id: lid, views: 0, featured: false, verified: false, created_at: t, updated_at: t, agent_id: l.agent_id || dev.uid }); if (pv) d.priv[lid] = pv; }
+        const day = dayKey(); d.divarDaily = d.divarDaily?.day === day ? { day, n: d.divarDaily.n + 1 } : { day, n: 1 };   // سهمیه روزانه اشتراک
         const n = { ...x, id: uid8(), by: dev.uid, at: t, status: 'new', ...(lid ? { listing_id: lid } : {}) };
         d.divar = [n, ...d.divar].slice(0, 500); return n;
       }, 'آگهی دیوار', false));
@@ -569,7 +686,7 @@ function DemoDB() {
       return new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(blob); });
     },
     nameOf(id) { return D.profiles.find(p => p.id === id)?.full_name || '—'; },
-    async divarList() { if (!isStaff()) deny(); return clone({ items: D.divar || [], ignore: D.divarIgnore || [], searches: D.divarSearches || [{ name: 'آپارتمان فروشی تهران — فقط شخصی', url: 'https://divar.ir/s/tehran/buy-apartment?user_type=personal' }] }); },
+    async divarList() { if (!isStaff()) deny(); return clone({ items: D.divar || [], ignore: D.divarIgnore || [], daily: D.divarDaily || null, searches: D.divarSearches || [{ name: 'آپارتمان فروشی تهران — فقط شخصی', url: 'https://divar.ir/s/tehran/buy-apartment?user_type=personal' }] }); },
     async divarAdd(x) {
       if (!isStaff()) deny(); D.divar = D.divar || []; const tok = Divar.tokenOf(x.url);
       if (tok && D.divar.some(y => Divar.tokenOf(y.url) === tok)) throw new Error('این آگهی قبلا در فهرست هست');
@@ -582,6 +699,7 @@ function DemoDB() {
       if (tok && (D.divar.some(y => Divar.tokenOf(y.url) === tok) || (D.divarIgnore || []).includes(tok))) throw new Error('تکراری');
       const t = new Date().toISOString(); let lid = null;
       if (l) { lid = ++D.seq; D.listings.push({ ...l, id: lid, views: 0, featured: false, verified: false, created_at: t, updated_at: t, agent_id: l.agent_id || uid }); if (pv) { D.priv = D.priv.filter(p => p.listing_id !== lid); D.priv.push({ ...pv, listing_id: lid }); } }
+      const day = dayKey(); D.divarDaily = D.divarDaily?.day === day ? { day, n: D.divarDaily.n + 1 } : { day, n: 1 };
       const n = { ...x, id: 'dv' + (++D.seq), by: uid, at: t, status: 'new', ...(lid ? { listing_id: lid } : {}) }; D.divar.unshift(n); save(); return clone(n);
     },
     async divarSaveSearches(list) { if (!isAdmin()) deny(); D.divarSearches = list; save(); },
@@ -599,11 +717,11 @@ function DemoDB() {
    وضعیت و مسیریابی
    ===================================================================== */
 const DB = DEMO ? DemoDB() : GitHubDB();
-const S = { me: null, listings: null, agents: null, designs: null, filters: store.get('amlak-filters', {}) };
+const S = { me: null, listings: null, agents: null, designs: null, filters: store.get(K('amlak-filters'), {}) };
 const isStaff = () => !!S.me && S.me.active && ['admin', 'agent'].includes(S.me.role);
 const isAdmin = () => !!S.me && S.me.active && S.me.role === 'admin';
 const canEdit = l => isAdmin() || (isStaff() && l.agent_id === S.me.id);
-const favs = () => store.get('amlak-favs', []);
+const favs = () => store.get(K('amlak-favs'), []);
 const agentOf = id => (S.agents || []).find(a => a.id === id);
 
 async function loadListings(force) { if (force || !S.listings) S.listings = await DB.listings(); return S.listings; }
@@ -647,8 +765,8 @@ async function route() {
       case 'fav': S.lastList = 'fav'; await viewFav(); break;
       case 'login': S.me ? go('panel') : viewLogin(); break;
       case 'join': S.me ? go('panel') : viewJoin(arg || ''); break;
-      case 'panel': isStaff() ? await viewPanel(arg) : S.me ? viewPending() : go('login'); break;
-      case 'edit': isStaff() ? await viewEdit(arg) : go('login'); break;
+      case 'panel': isStaff() ? (subState().ok ? await viewPanel(arg) : viewExpired()) : S.me ? viewPending() : go('login'); break;
+      case 'edit': isStaff() ? (subState().ok ? await viewEdit(arg) : viewExpired()) : go('login'); break;
       case 'dedit': isAdmin() ? await viewDesignEdit(arg) : go('designs'); break;
       case 'helper': viewHelper(); break;
       default: go('sale');
@@ -685,7 +803,7 @@ function card(l) {
 }
 function toggleFav(id) {
   const f = favs(), i = f.indexOf(id);
-  i < 0 ? f.unshift(id) : f.splice(i, 1); store.set('amlak-favs', f);
+  i < 0 ? f.unshift(id) : f.splice(i, 1); store.set(K('amlak-favs'), f);
   toast(i < 0 ? 'به نشان‌شده‌ها اضافه شد' : 'از نشان‌شده‌ها حذف شد', 1500);
   return i < 0;
 }
@@ -727,7 +845,7 @@ async function viewList(deal) {
     <div class="count" id="cnt"></div>
     <div class="cards" id="list"></div>`;
   const draw = () => {
-    store.set('amlak-filters', S.filters);
+    store.set(K('amlak-filters'), S.filters);
     const q = F.q.trim(), qn = toNum(q);
     const pv = l => sale ? (l.price || 0) : (l.deposit || 0) + (l.rent || 0) * 33;   // تبدیل اجاره به رهن (هر ۱ میلیون اجاره ≈ ۳۳ میلیون رهن) برای مرتب‌سازی
     let r = all.filter(l => l.deal === deal && ['active', 'reserved'].includes(l.status)
@@ -993,12 +1111,12 @@ const afterLogin = async () => { S.me = await DB.me(); invalidate(); S.panel = n
 
 function viewLogin() {
   if (DEMO) return viewDemoLogin();
-  if (!DB.deviceLinked()) return viewSetup();
+  if (!DB.deviceLinked()) return TENANT !== 'main' ? viewJoinOnly() : viewSetup();
   const adminDev = DB.deviceKind() === 'admin';
   view().innerHTML = `<div style="max-width:420px;margin:0 auto" class="stack">
     <h2>${adminDev ? 'ورود مدیر' : 'ورود مشاور'}</h2>
     <form class="card stack" id="f">
-      <label class="f"><span>نام شما</span><input name="name" required autocomplete="username" value="${esc(store.get('amlak-last-name', ''))}"></label>
+      <label class="f"><span>نام شما</span><input name="name" required autocomplete="username" value="${esc(store.get(K('amlak-last-name'), ''))}"></label>
       <label class="f"><span>رمز عبور</span><input name="pw" type="password" required dir="ltr" autocomplete="current-password"></label>
       <button class="btn primary" id="sb">ورود</button>
     </form>
@@ -1013,13 +1131,17 @@ function viewLogin() {
     }
     b.disabled = true;
     try {
-      const r = await DB.loginByName(name, pw, create); store.set('amlak-last-name', name);
+      const r = await DB.loginByName(name, pw, create); store.set(K('amlak-last-name'), name);
       if (r === 'created') toast('حساب مدیر شما ساخته شد'); await afterLogin();
     } catch (err) { toast(err.message); b.disabled = false; }
   });
   $('#forget').addEventListener('click', () => { if (confirm('اتصال این گوشی به سامانه قطع شود؟')) { DB.forgetDevice(); viewLogin(); } });
 }
 
+function viewJoinOnly() {   // بنگاه‌های مشترک: عضویت فقط با لینک دعوت
+  view().innerHTML = `<div style="max-width:420px;margin:0 auto" class="stack"><h2>ورود به پنل ${esc(CFG.name)}</h2>
+    <div class="card"><p class="muted" style="margin:0">لینک دعوتی را که مدیر بنگاه برایتان فرستاده روی همین گوشی باز کنید و رمزتان را بزنید.</p></div></div>`;
+}
 function viewSetup() {
   view().innerHTML = `<div style="max-width:520px;margin:0 auto" class="stack">
     <h2>ورود مشاوران و مدیر</h2>
@@ -1072,6 +1194,14 @@ function viewPending() {
     <div class="row" style="justify-content:center"><button class="btn" onclick="location.reload()">بررسی دوباره</button><button class="btn danger" id="out">خروج</button></div></div>`;
   $('#out').addEventListener('click', logout);
 }
+function viewExpired() {
+  const s = subState(), sup = REG?.support || {};
+  view().innerHTML = `<div class="empty">${I.user}<h3>${s.suspended ? `اشتراک ${esc(CFG.name)} متوقف شده است` : s.exp ? `اشتراک ${esc(CFG.name)} در تاریخ ${s.exp.toLocaleDateString('fa-IR')} به پایان رسیده است` : `اشتراک ${esc(CFG.name)} هنوز فعال نشده است`}</h3>
+    <p>برای ${s.exp ? 'تمدید' : 'فعال‌سازی'} اشتراک با پشتیبانی سامانه تماس بگیرید${sup.name ? ': ' + esc(sup.name) : ''}. آگهی‌ها و اطلاعات شما محفوظ است.</p>
+    ${sup.phone ? `<a class="btn primary" href="tel:${esc(sup.phone)}">${I.phone} ${esc(faStr(sup.phone))}</a>` : ''}
+    <div class="row" style="justify-content:center;margin-top:10px"><button class="btn" onclick="location.reload()">بررسی دوباره</button><button class="btn danger" id="out">خروج</button></div></div>`;
+  $('#out').addEventListener('click', logout);
+}
 async function logout() { if (WATCH.on) { const keep = wcfg().on; watchStop(); wsave({ on: keep }); } await DB.signOut(); S.me = null; invalidate(); go('sale'); }
 
 /* =====================================================================
@@ -1087,11 +1217,13 @@ async function viewPanel(tab, reuse) {
   const nAgents = admin ? (await DB.profiles()).filter(p => p.active && p.role === 'agent').length : 0;
   const newLeads = leads.filter(x => x.status === 'new').length;
   const tabs = [['listings', admin ? 'همه آگهی‌ها' : 'آگهی‌های من'], ...(DB.divarList ? [['divar', 'فایل‌های دیوار']] : []), ...(DB.caps.leads ? [['leads', `درخواست‌ها${newLeads ? ` (${fa(newLeads)})` : ''}`]] : []),
-    ...(admin ? [['agents', 'مشاوران'], ['designs', 'طراحی‌ها']] : []), ...(DB.isOwner?.() ? [['admins', 'مدیران']] : []), ['me', 'حساب من']];
+    ...(admin ? [['agents', 'مشاوران'], ['designs', 'طراحی‌ها']] : []), ...(DB.isOwner?.() ? [['admins', 'مدیران']] : []), ...(DB.owner && DB.isOwner?.() ? [['agencies', 'بنگاه‌ها']] : []), ['me', 'حساب من']];
+  const sub = subState();
   view().innerHTML = `
     <div class="row" style="margin-bottom:12px"><h2 style="flex:1">${admin ? 'پنل مدیریت' : 'پنل مشاور'}</h2>
       <a class="btn primary" href="#edit/new">${I.plus} ثبت آگهی</a></div>
     <div id="mig"></div>
+    ${!sub.main ? `<div class="card small row" style="margin-bottom:12px;border-color:var(--${sub.days <= 5 ? 'warn' : 'line'})"><span style="flex:1">اشتراک <b>${esc(sub.tier.name)}</b> · ${sub.days <= 5 ? '⚠️ ' : ''}${fa(sub.days)} روز مانده (تا ${sub.exp.toLocaleDateString('fa-IR')})</span><span class="muted">دیوار: روزی ${fa(sub.tier.daily)} آگهی</span></div>` : ''}
     ${admin && DB.storage ? '<div id="stor"></div>' : ''}
     <div class="stats" style="margin-bottom:14px">
       <div class="stat"><small>آگهی فعال</small><b>${fa(mine.filter(l => l.status === 'active').length)}</b></div>
@@ -1112,6 +1244,7 @@ async function viewPanel(tab, reuse) {
   else if (tab === 'leads' && DB.caps.leads) panelLeads(pt, leads, all);
   else if (tab === 'agents' && admin) await panelAgents(pt, all, leads);
   else if (tab === 'admins' && DB.isOwner?.()) await panelAdmins(pt, all);
+  else if (tab === 'agencies' && DB.owner && DB.isOwner?.()) await panelAgencies(pt);
   else if (tab === 'designs' && admin) await panelDesigns(pt);
   else panelMe(pt);
 }
@@ -1222,7 +1355,7 @@ async function panelAgents(pt, all, leads) {
   if (!gh) return;
   const showInvite = async (id, pw) => {
     const p = (await DB.profiles()).find(x => x.id === id), code = await DB.makeInvite(id, pw);
-    const link = location.origin + location.pathname + '#join/' + code;
+    const link = location.origin + location.pathname + (TENANT !== 'main' ? '?a=' + TENANT : '') + '#join/' + code;
     const msg = `سلام ${p.full_name}،\nبرای ورود به پنل مشاوران ${CFG.name || ''} این لینک را روی گوشی خود باز کنید:\n${link}\nرمز ورود را جداگانه به شما می‌گویم.`;
     $('#inv').innerHTML = `<div class="card stack" style="margin-bottom:12px;border-color:var(--accent)"><b>لینک دعوت ${esc(p.full_name)}</b>
       <p class="small muted" style="margin:0">این لینک را برای او بفرستید و <b>رمز را جداگانه</b> (تلفنی یا حضوری) بگویید. بدون رمز، لینک به کاری نمی‌آید.</p>
@@ -1250,9 +1383,9 @@ async function panelAgents(pt, all, leads) {
 
 /* ---------- دیده‌بان دیوار: تا وقتی اپ روی این دستگاه باز است، جستجوهای آماده را مرتب بررسی می‌کند ---------- */
 const WATCH = { on: false, timer: null, busy: false, last: null, msg: '', added: 0, skipped: 0 };
-const wcfg = () => ({ every: 20, drafts: true, skipAgency: true, maxAge: 1, ...store.get('amlak-watch', {}) });
-const wsave = p => store.set('amlak-watch', { ...wcfg(), ...p });
-function watchStart() { if (!isAdmin() || !DB.divarList || WATCH.on) return; WATCH.on = true; WATCH.msg = 'در حال شروع…'; wsave({ on: true }); watchUI(); watchTick(); }
+const wcfg = () => ({ every: 20, drafts: true, skipAgency: true, maxAge: 1, ...store.get(K('amlak-watch'), {}) });
+const wsave = p => store.set(K('amlak-watch'), { ...wcfg(), ...p });
+function watchStart() { if (!isAdmin() || !DB.divarList || WATCH.on || !subState().ok) return; WATCH.on = true; WATCH.msg = 'در حال شروع…'; wsave({ on: true }); watchUI(); watchTick(); }
 function watchStop() { WATCH.on = false; clearTimeout(WATCH.timer); wsave({ on: false }); WATCH.msg = 'خاموش'; watchUI(); }
 async function watchTick() {
   if (!WATCH.on) return;
@@ -1261,7 +1394,7 @@ async function watchTick() {
     try { await watchOnce(); } catch (e) { WATCH.msg = '⚠️ ' + e.message; }
     finally { WATCH.busy = false; WATCH.last = new Date(); watchUI(); }
   }
-  WATCH.timer = setTimeout(watchTick, Math.max(5, +wcfg().every || 20) * 1000);
+  WATCH.timer = setTimeout(watchTick, Math.max(tierOf().every, +wcfg().every || 20) * 1000);
 }
 function beep() { try { const c = new (window.AudioContext || window.webkitAudioContext)(), o = c.createOscillator(), g = c.createGain(); o.frequency.value = 880; g.gain.value = .08; o.connect(g); g.connect(c.destination); o.start(); setTimeout(() => { o.stop(); c.close(); }, 220); } catch { } }
 function notify(title, body) {
@@ -1269,11 +1402,14 @@ function notify(title, body) {
   try { if (window.Notification?.permission === 'granted') new Notification(title, { body, icon: 'icons/icon-192.png' }); } catch { }
 }
 async function watchOnce() {
-  const { items, searches, ignore = [] } = await DB.divarList();
+  const { items, searches, ignore = [], daily } = await DB.divarList();
+  if (!subState().ok) { watchStop(); throw new Error('اشتراک بنگاه فعال نیست'); }
+  const tier = tierOf(), used = daily?.day === dayKey() ? daily.n : 0;
+  if (used >= tier.daily) { WATCH.msg = `سهمیه امروز اشتراک ${tier.name} (${fa(tier.daily)} آگهی) پر شد؛ فردا ادامه می‌دهد`; return; }
   if (!searches.length) throw new Error('اول یک «جستجوی آماده» دیوار ذخیره کنید (پایین همین صفحه)');
   // هر آگهی‌ای که در نتیجه جستجو هست و هنوز در فهرست نیست (و دستی حذف نشده) اضافه می‌شود
   const known = new Set([...items.map(x => Divar.tokenOf(x.url)), ...ignore]);
-  const fails = store.get('amlak-watch-fail', {}), c = wcfg(), PER_TICK = 5;
+  const fails = store.get(K('amlak-watch-fail'), {}), c = wcfg(), PER_TICK = 5;
   let fresh = 0, blocked = 0, pending = 0, dropped = 0;
   for (const sr of searches) {
     let tokens;
@@ -1281,7 +1417,7 @@ async function watchOnce() {
     const todo = tokens.filter(t => !known.has(t) && (fails[t] || 0) < 9);
     pending += todo.length;
     for (const t of todo) {
-      if (fresh >= PER_TICK) break;
+      if (fresh >= PER_TICK || used + fresh >= tier.daily) break;
       known.add(t);
       const url = 'https://divar.ir/v/' + t;
       let d = {};
@@ -1302,7 +1438,7 @@ async function watchOnce() {
       notify('آگهی تازه دیوار', parsed.title || url);
     }
   }
-  store.set('amlak-watch-fail', fails); localStorage.removeItem('amlak-watch-seen');
+  store.set(K('amlak-watch-fail'), fails); localStorage.removeItem('amlak-watch-seen');
   if (blocked === searches.length) throw new Error('دیوار اجازه جستجوی مستقیم از داخل اپ را نداد');
   const left = Math.max(0, pending - fresh - dropped);
   WATCH.msg = fresh ? `${fa(fresh)} آگهی اضافه شد${left ? ` — ${fa(left)} آگهی دیگر در صف (بررسی بعدی)` : ''}` : 'آگهی تازه‌ای نبود';
@@ -1329,7 +1465,7 @@ async function panelDivar(pt) {
   pt.innerHTML = `
     ${isAdmin() ? `<div class="card stack" style="margin-bottom:12px;border-color:var(--accent)">
       <div class="row"><h3 style="flex:1">🤖 دیده‌بان دیوار</h3><label class="check"><input type="checkbox" id="won"> روشن</label></div>
-      <div class="grid2"><label class="f"><span>هر چند ثانیه یک بار</span><select id="wev">${opts([5, 10, 20, 30, 60].map(x => [x, fa(x) + ' ثانیه']), c.every)}</select></label>
+      <div class="grid2"><label class="f"><span>هر چند ثانیه یک بار</span><select id="wev">${opts([5, 10, 20, 30, 60].filter(x => x >= tierOf().every).map(x => [x, fa(x) + ' ثانیه']), c.every)}</select></label>
         <label class="check" style="align-self:end;min-height:42px"><input type="checkbox" id="wdr"${c.drafts ? ' checked' : ''}> ثبت خودکار پیش‌نویس به نام من</label></div>
       <label class="f"><span>حداکثر عمر آگهی (از تاریخ انتشار اصلی در دیوار، نردبان حساب نمی‌شود)</span><select id="wmx">${opts([[0, 'فقط آگهی‌های امروز'], [1, 'امروز و دیروز'], [3, 'تا ۳ روز'], [10, 'تا ۱۰ روز'], [30, 'تا یک ماه']], c.maxAge)}</select></label>
       <label class="check small"><input type="checkbox" id="wag"${c.skipAgency ? ' checked' : ''}> رد کردن آگهی‌های املاکی (بر اساس نوع آگهی‌دهنده در خود دیوار و جمله‌هایی مثل «خرید و فروش ... واریزی‌های متنوع»)</label>
@@ -1391,7 +1527,7 @@ async function panelDivar(pt) {
     $('#wmx').addEventListener('change', e => wsave({ maxAge: +e.target.value }));
     $('#wrb').addEventListener('click', async () => {
       if (!confirm('پیش‌نویس‌های خودکارِ منتشرنشده و ردیف‌هایشان در فهرست پاک می‌شوند تا دیده‌بان آن‌هایی را که با تنظیمات فعلی قبول می‌شوند، تمیز دوباره بسازد. آگهی‌های منتشرشده و آگهی‌هایی که دستی اضافه شده‌اند دست نمی‌خورند. ادامه؟')) return;
-      try { const n = await DB.divarResetAuto(); localStorage.removeItem('amlak-watch-fail'); S.listings = null; S.panel = null; toast(`${fa(n)} پیش‌نویس پاک شد؛ دیده‌بان در بررسی بعدی دوباره می‌سازد`, 4500); viewPanel('divar'); }
+      try { const n = await DB.divarResetAuto(); localStorage.removeItem(K('amlak-watch-fail')); S.listings = null; S.panel = null; toast(`${fa(n)} پیش‌نویس پاک شد؛ دیده‌بان در بررسی بعدی دوباره می‌سازد`, 4500); viewPanel('divar'); }
       catch (e) { toast(e.message); }
     });
     $('#wnt').addEventListener('click', async () => {
@@ -1651,7 +1787,7 @@ async function viewDesignEdit(arg) {
 /* ---------------- شروع ---------------- */
 (async () => {
   renderChrome('sale');
-  try { await DB.init(); S.me = await DB.me(); }
+  try { await loadRegistry(); renderChrome('sale'); await DB.init(); S.me = await DB.me(); }
   catch (e) { view().innerHTML = `<div class="empty">${I.empty}<p>${esc(e.message)}</p><button class="btn" onclick="location.reload()">تلاش دوباره</button></div>`; return; }
   addEventListener('hashchange', route);
   route();
