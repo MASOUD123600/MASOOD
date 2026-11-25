@@ -1,16 +1,16 @@
 // ==UserScript==
 // @name         کمک‌یار دیوار — اپ املاک
-// @namespace    https://masoud123600.github.io/MASOOD/amlak/
-// @version      1.0.0
+// @namespace    https://kmm110.github.io/amlak/
+// @version      1.0.1
 // @description  به اپ املاک اجازه می‌دهد آگهی‌های دیوار را با اینترنت همین دستگاه بخواند. فقط صفحه‌های divar.ir را می‌خواند و به هیچ جای دیگری وصل نمی‌شود.
-// @match        https://masoud123600.github.io/MASOOD/amlak/*
+// @match        https://kmm110.github.io/amlak/*
 // @grant        GM_xmlhttpRequest
 // @connect      divar.ir
 // @connect      api.divar.ir
 // @run-at       document-start
 // @noframes
-// @downloadURL  https://masoud123600.github.io/MASOOD/amlak/divar-helper.user.js
-// @updateURL    https://masoud123600.github.io/MASOOD/amlak/divar-helper.user.js
+// @downloadURL  https://kmm110.github.io/amlak/divar-helper.user.js
+// @updateURL    https://kmm110.github.io/amlak/divar-helper.user.js
 // ==/UserScript==
 
 /* این اسکریپت فقط روی صفحه اپ املاک اجرا می‌شود. اپ از آن می‌خواهد یک صفحه از divar.ir را بخواند؛
